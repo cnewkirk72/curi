@@ -12,11 +12,19 @@ import { env } from './env.js';
 import { runAll, type RunSummary } from './runner.js';
 import type { Scraper } from './types.js';
 import { publicRecordsScraper } from './scrapers/venues/public-records.js';
+import { elsewhereScraper } from './scrapers/venues/elsewhere.js';
+import { nowadaysScraper } from './scrapers/venues/nowadays.js';
+import { raNycScraper } from './scrapers/aggregators/ra-nyc.js';
 
-// Registry of every scraper Curi knows about. Phase 2 adds public-records first;
-// more sources land as they're built.
+// Registry of every scraper Curi knows about.
+//   Phase 2a: public-records
+//   Phase 2b: elsewhere, nowadays, ra-nyc (aggregator, replaces planned Shotgun
+//             source which is unreachable behind Vercel's bot gate)
 const REGISTRY: Record<string, Scraper> = {
   [publicRecordsScraper.source]: publicRecordsScraper,
+  [elsewhereScraper.source]: elsewhereScraper,
+  [nowadaysScraper.source]: nowadaysScraper,
+  [raNycScraper.source]: raNycScraper,
 };
 
 function parseSources(argv: string[]): string[] {
