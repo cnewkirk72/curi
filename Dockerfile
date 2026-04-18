@@ -24,12 +24,20 @@ ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 
 # Copy workspace manifest first — lets Docker cache `pnpm install` when
 # only src/ files change (which is most commits).
-COPY pnpm-workspace.yaml pnpm-lock.yaml package.json tsconfig.base.json ./
+#
+# NOTE: pnpm-lock.yaml is intentionally absent from the repo for now
+# (scaffold commits didn't include it and the file exceeds our current
+# push tooling's size budget). Without a lockfile, pnpm resolves fresh
+# on each build — acceptable for this small dep set. The day the
+# lockfile is committed, add it back to both COPY lines below and flip
+# the two `pnpm install` commands to `--frozen-lockfile` for
+# deterministic Railway builds.
+COPY pnpm-workspace.yaml package.json tsconfig.base.json ./
 COPY packages/ingestion/package.json packages/ingestion/
 
 # Install ingestion's deps (+ its workspace ancestors, though it has
-# none yet). --frozen-lockfile keeps Railway builds deterministic.
-RUN pnpm install --frozen-lockfile --filter @curi/ingestion...
+# none yet).
+RUN pnpm install --filter @curi/ingestion...
 
 # Now pull source and compile.
 COPY packages/ingestion packages/ingestion
@@ -44,11 +52,12 @@ RUN corepack enable
 ENV NODE_ENV=production
 ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 
-# Re-install production deps against the same lockfile in a clean layer.
-# Cheaper than copying node_modules from builder (avoids the dev deps).
-COPY pnpm-workspace.yaml pnpm-lock.yaml package.json ./
+# Re-install production deps in a clean layer. Cheaper than copying
+# node_modules from builder (avoids the dev deps). See lockfile note
+# in the builder stage above.
+COPY pnpm-workspace.yaml package.json ./
 COPY packages/ingestion/package.json packages/ingestion/
-RUN pnpm install --frozen-lockfile --prod --filter @curi/ingestion...
+RUN pnpm install --prod --filter @curi/ingestion...
 
 # Compiled JS from the builder.
 COPY --from=builder /app/packages/ingestion/dist packages/ingestion/dist
