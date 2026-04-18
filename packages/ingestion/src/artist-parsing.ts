@@ -11,13 +11,18 @@
 // what's real. False positives are cheap (enrichment just fails); false
 // negatives hide artists entirely, so we err on the side of inclusion.
 
-const PRESENTS_SPLIT = /(?:^|[^a-z0-9])(?:presents?|present|pres\.)?\s*:?\s*/i;
-const SUPPORT_SPLIT = /\s*(?:\b(?:support|w\/|with|feat\.?|featuring)\b)?\s*:?\s*/i;
+const PRESENTS_SPLIT = /(?:^|[^a-z0-9])(?:presents?|present|pres\.)\s*:?\s*/i;
+// `feat` is followed by `\b\.?` rather than `feat\.?\b` so the optional period
+// is consumed as part of the delimiter. With `feat\.?\b`, "feat." never matched
+// (the `.`→space transition isn't a word boundary), so the engine fell back to
+// matching just "feat" and left the orphan period on the next piece — e.g.
+// "PLUS ONE feat. MILHOUSE, …" produced ["PLUS ONE", ". MILHOUSE", …].
+const SUPPORT_SPLIT = /\s*(?:\b(?:support|w\/|with|feat|featuring)\b\.?)\s*:?\s*/i;
 const B2B_SPLIT = /\s+(?:b2b|b3b|b4b|vs\.?|x|&)\s+/i;
 const COMMA_SPLIT = /\s*(?:,|\+|\/|;|·|•|→|\||\band\b)\s*/i;
 
 // Matches (live), [live], (dj set), etc. — anywhere in the string.
-const LIVE_TAG = /\s*[(\[](?:live|dj set|live set|dj|all night long|anl|b2b)[)\]]\s*/gi;
+const LIVE_TAG = /\s*[([](?:live|dj set|live set|dj|all night long|anl|b2b)[)\]]\s*/gi;
 
 // "Series: Artist1, Artist2…" — short prefix (≤ 5 words) + colon at title start.
 // Conservative: only strip if the first word isn't itself likely an artist
@@ -126,7 +131,7 @@ export function parseArtists(title: string): string[] {
     }
   }
 
-  // 2. Pull off "support:" / "w:/" tails as a separate bucket.
+  // 2. Pull off "support:" / "w/" tails as a separate bucket.
   const supportSplit = working.split(SUPPORT_SPLIT);
   const primary = supportSplit[0] ?? '';
   const support = supportSplit.slice(1).join(' ');
