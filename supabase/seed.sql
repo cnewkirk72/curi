@@ -1,10 +1,12 @@
--- ────────────────────────────────────────────────────────────────────────
+-- ─────────────────────────────────────────────────────────────────────────────
 -- Curi — Phase 1 seed: NYC electronic venues + MusicBrainz taxonomy mappings.
 -- Idempotent (on conflict do nothing) so it's safe to re-run.
--- ────────────────────────────────────────────────────────────────────────
+-- ─────────────────────────────────────────────────────────────────────────────
 
--- ── VENUES ───────────────────────────────────────────────────────────────────────────────
+-- ── VENUES ────────────────────────────────────────────────────────────────────────
 -- lat/lng intentionally omitted here — we'll fill from scrapers when available.
+-- Neighborhoods and websites verified to best available knowledge; any marked
+-- with a ⚠ comment should be double-checked before first ingestion run.
 insert into public.venues (name, slug, neighborhood, website) values
   ('Public Records',             'public-records',    'Gowanus, Brooklyn',           'https://publicrecords.nyc'),
   ('Nowadays',                   'nowadays',          'Ridgewood, Queens',           'https://nowadays.nyc'),
@@ -20,9 +22,8 @@ insert into public.venues (name, slug, neighborhood, website) values
   ('Market Hotel',               'market-hotel',      'Bushwick, Brooklyn',          'https://markethotel.org')
 on conflict (slug) do nothing;
 
--- ── TAXONOMY MAP ──────────────────────────────────────────────────────────────────────
+-- ── TAXONOMY MAP ────────────────────────────────────────────────────────────────────────
 -- Maps common MusicBrainz tags → Curi genres[] + flavors[].
--- 47 entries. Edit freely before applying.
 insert into public.taxonomy_map (input_tag, genres, flavors) values
   -- drum & bass family
   ('liquid funk',         array['dnb'],                array['melodic','groovy']),
@@ -87,5 +88,46 @@ insert into public.taxonomy_map (input_tag, genres, flavors) values
   ('downtempo',           array['ambient'],            array['introspective','daytime']),
   ('trip hop',            array['experimental'],       array['cinematic','introspective']),
   ('ballroom',            array['experimental'],       array['queer','peak-time']),
-  ('gqom',                array['experimental','bass'],array['underground','club-focused'])
+  ('gqom',                array['experimental','bass'],array['underground','club-focused']),
+
+  -- foundational parents: bare genre tags so Jaccard doesn't tie-break
+  -- arbitrarily between N-word subgenres when MB returns a plain "house" or
+  -- "techno" tag.
+  ('house',               array['house'],              array['groovy','club-focused']),
+  ('techno',              array['techno'],             array['peak-time','club-focused']),
+  -- 'drum and bass' already seeded above in the DNB family block
+  ('dnb',                 array['dnb'],                array['peak-time','club-focused']),
+  ('jungle music',        array['dnb'],                array['peak-time']),
+  ('bass music',          array['bass'],               array['club-focused']),
+  ('garage',              array['garage'],             array['groovy']),
+  ('trance',              array['trance'],             array['melodic']),
+  ('experimental',        array['experimental'],       array[]::text[]),
+  ('breaks',              array['breaks'],             array['groovy']),
+  ('breakbeats',          array['breaks'],             array['groovy']),
+
+  -- known-noise tags: MB frequently returns these on electronic artists
+  -- (Yaeji tagged 'hip hop', DJ Python tagged 'reggaeton', etc). Empty arrays
+  -- = "recognized, ignored" — short-circuits before similarity match and
+  -- keeps the unmapped log clean.
+  ('electronic',          array[]::text[],             array[]::text[]),
+  ('electronica',         array[]::text[],             array[]::text[]),
+  ('dance',               array[]::text[],             array[]::text[]),
+  ('edm',                 array[]::text[],             array[]::text[]),
+  ('hip hop',             array[]::text[],             array[]::text[]),
+  ('hip-hop',             array[]::text[],             array[]::text[]),
+  ('rap',                 array[]::text[],             array[]::text[]),
+  ('rnb',                 array[]::text[],             array[]::text[]),
+  ('r&b',                 array[]::text[],             array[]::text[]),
+  ('soul',                array[]::text[],             array[]::text[]),
+  ('funk',                array[]::text[],             array[]::text[]),
+  ('pop',                 array[]::text[],             array[]::text[]),
+  ('indie',               array[]::text[],             array[]::text[]),
+  ('indie pop',           array[]::text[],             array[]::text[]),
+  ('rock',                array[]::text[],             array[]::text[]),
+  ('indie rock',          array[]::text[],             array[]::text[]),
+  ('jazz',                array[]::text[],             array[]::text[]),
+  ('reggae',              array[]::text[],             array[]::text[])
+  -- NB: intentionally not adding 'reggaeton' as noise — dembow-leaning
+  -- electronic artists (DJ Python etc.) use this tag and it's a legit Curi
+  -- signal. Leaving it to the unmapped log so it gets a proper mapping later.
 on conflict (input_tag) do nothing;

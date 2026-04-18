@@ -27,6 +27,7 @@ export type Database = {
           musicbrainz_id: string | null;
           name: string;
           slug: string;
+          subgenres: string[];
         };
         Insert: {
           flavors?: string[];
@@ -37,6 +38,7 @@ export type Database = {
           musicbrainz_id?: string | null;
           name: string;
           slug: string;
+          subgenres?: string[];
         };
         Update: {
           flavors?: string[];
@@ -47,6 +49,7 @@ export type Database = {
           musicbrainz_id?: string | null;
           name?: string;
           slug?: string;
+          subgenres?: string[];
         };
         Relationships: [];
       };
@@ -177,6 +180,44 @@ export type Database = {
           input_tag?: string;
         };
         Relationships: [];
+      };
+      taxonomy_subgenres: {
+        Row: {
+          auto_created_at: string;
+          confidence: number;
+          flavors: string[];
+          genres: string[];
+          id: string;
+          input_tag: string;
+          parent_tag_id: string;
+        };
+        Insert: {
+          auto_created_at?: string;
+          confidence: number;
+          flavors?: string[];
+          genres?: string[];
+          id?: string;
+          input_tag: string;
+          parent_tag_id: string;
+        };
+        Update: {
+          auto_created_at?: string;
+          confidence?: number;
+          flavors?: string[];
+          genres?: string[];
+          id?: string;
+          input_tag?: string;
+          parent_tag_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'taxonomy_subgenres_parent_tag_id_fkey';
+            columns: ['parent_tag_id'];
+            isOneToOne: false;
+            referencedRelation: 'taxonomy_map';
+            referencedColumns: ['id'];
+          },
+        ];
       };
       user_saves: {
         Row: {
