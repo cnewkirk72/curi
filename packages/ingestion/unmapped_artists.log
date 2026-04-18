@@ -1,0 +1,3 @@
+# MusicBrainz artists whose tags had zero taxonomy_map matches.
+# Reviewed manually — each one is a signal that taxonomy_map needs a new entry.
+# Format: ISO_timestamp \t artist_name \t mb_id \t top_tags
