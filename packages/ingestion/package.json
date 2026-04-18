@@ -8,6 +8,7 @@
   },
   "scripts": {
     "ingest": "tsx src/cli.ts",
+    "start": "node dist/cli.js",
     "build": "tsc -p tsconfig.json",
     "lint": "echo 'no-op — add eslint in phase 2'",
     "typecheck": "tsc -p tsconfig.json --noEmit"

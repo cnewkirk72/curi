@@ -1,0 +1,36 @@
+# Keep the Docker build context small and deterministic.
+# Anything here is excluded from `COPY . .` — but since our Dockerfile
+# copies specific paths rather than everything, this mostly acts as
+# belt-and-suspenders.
+
+# Package manager artifacts
+node_modules
+**/node_modules
+.pnpm-store
+
+# Build outputs (rebuilt inside the image)
+**/dist
+**/.next
+**/out
+**/build
+
+# Local env + secrets (Railway injects env vars at runtime)
+.env
+.env.local
+.env.*.local
+
+# VCS + editor
+.git
+.gitignore
+.vscode
+.idea
+
+# Test + scratch
+coverage
+**/*.log
+packages/ingestion/STATUS.md
+packages/ingestion/unmapped_artists.log
+packages/ingestion/scripts/smoke-*.ts
+
+# apps/web is deployed on Vercel, not included in the ingestion image
+apps/web
