@@ -17,13 +17,13 @@ export type DateFilter = 'all' | 'tonight' | 'tomorrow' | 'weekend' | 'week';
 export type FilterState = {
   when: DateFilter;
   genres: string[];
-  flavors: string[];
+  vibes: string[];
 };
 
 export const EMPTY_FILTERS: FilterState = {
   when: 'all',
   genres: [],
-  flavors: [],
+  vibes: [],
 };
 
 // ── URL ↔ FilterState ────────────────────────────────────────────
@@ -48,7 +48,7 @@ export function parseFilters(sp: ParamsLike): FilterState {
       .split(',')
       .map((s) => s.trim().toLowerCase())
       .filter(Boolean),
-    flavors: (sp.get('vibes') ?? '')
+    vibes: (sp.get('vibes') ?? '')
       .split(',')
       .map((s) => s.trim().toLowerCase())
       .filter(Boolean),
@@ -64,19 +64,19 @@ export function serializeFilters(state: FilterState): string {
   const params = new URLSearchParams();
   if (state.when !== 'all') params.set('when', state.when);
   if (state.genres.length) params.set('genres', state.genres.join(','));
-  if (state.flavors.length) params.set('vibes', state.flavors.join(','));
+  if (state.vibes.length) params.set('vibes', state.vibes.join(','));
   return params.toString();
 }
 
 export function hasActiveFilters(state: FilterState): boolean {
   return (
-    state.when !== 'all' || state.genres.length > 0 || state.flavors.length > 0
+    state.when !== 'all' || state.genres.length > 0 || state.vibes.length > 0
   );
 }
 
 export function activeFilterCount(state: FilterState): number {
   return (
-    (state.when !== 'all' ? 1 : 0) + state.genres.length + state.flavors.length
+    (state.when !== 'all' ? 1 : 0) + state.genres.length + state.vibes.length
   );
 }
 
@@ -88,7 +88,7 @@ export function activeFilterCount(state: FilterState): number {
 // that cover the overwhelming majority of NYC electronic nights.
 //
 // NOTE: `slug` is the value we filter on (matches the `events.genres`
-// / `events.flavors` text[] values); `label` is what users see.
+// / `events.vibes` text[] values); `label` is what users see.
 
 export type FilterOption = { slug: string; label: string };
 

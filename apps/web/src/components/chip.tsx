@@ -1,4 +1,4 @@
-// Genre / flavor chip. Tone is chosen upstream (home feed picks from a
+// Genre / vibe chip. Tone is chosen upstream (home feed picks from a
 // deterministic tone map keyed on the first genre) so the same genre
 // always lands on the same color across the app.
 

@@ -3,7 +3,7 @@
 // Server action for upserting user_prefs.
 //
 // One write path (upsert) for the whole form. The preferences form
-// is small enough — genre/flavor checkbox grids + a single email
+// is small enough — genre/vibe checkbox grids + a single email
 // toggle — that shipping a single "save all" action is cleaner
 // than three narrow mutations, and it dodges the dance of
 // inventing a partial-update API.
@@ -20,7 +20,7 @@ import { GENRE_OPTIONS, VIBE_OPTIONS } from '@/lib/filters';
 
 export type PrefsInput = {
   preferred_genres: string[];
-  preferred_flavors: string[];
+  preferred_vibes: string[];
   digest_email: boolean;
 };
 
@@ -52,7 +52,7 @@ function sanitize(values: string[], allowed: Set<string>): string[] {
  * saves produce one stable row instead of a PK violation — the
  * first save creates the row, subsequent ones update in place.
  *
- * Unknown slugs in genres/flavors are dropped silently (see
+ * Unknown slugs in genres/vibes are dropped silently (see
  * `sanitize`). The trigger from 0001 bumps `updated_at`.
  */
 export async function upsertUserPrefs(input: PrefsInput): Promise<Result> {
@@ -65,7 +65,7 @@ export async function upsertUserPrefs(input: PrefsInput): Promise<Result> {
   if (!user) return { ok: false, reason: 'unauth' };
 
   const cleanGenres = sanitize(input.preferred_genres ?? [], GENRE_SLUGS);
-  const cleanFlavors = sanitize(input.preferred_flavors ?? [], VIBE_SLUGS);
+  const cleanVibes = sanitize(input.preferred_vibes ?? [], VIBE_SLUGS);
   const digest = !!input.digest_email;
 
   // Same @supabase/ssr 0.5.1 type-inference dance as save-actions.ts:
@@ -75,7 +75,7 @@ export async function upsertUserPrefs(input: PrefsInput): Promise<Result> {
   const row: TablesInsert<'user_prefs'> = {
     user_id: user.id,
     preferred_genres: cleanGenres,
-    preferred_flavors: cleanFlavors,
+    preferred_vibes: cleanVibes,
     digest_email: digest,
   };
 

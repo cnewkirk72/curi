@@ -82,7 +82,7 @@ export function FilterSheet({ open, onClose, initialFilters }: Props) {
   }
 
   function clearAll() {
-    setDraft({ when: 'all', genres: [], flavors: [] });
+    setDraft({ when: 'all', genres: [], vibes: [] });
   }
 
   return (
@@ -167,11 +167,11 @@ export function FilterSheet({ open, onClose, initialFilters }: Props) {
             <Section label="Vibe" hint="Multi-select">
               <OptionGrid
                 options={VIBE_OPTIONS}
-                selected={draft.flavors}
+                selected={draft.vibes}
                 onToggle={(slug) =>
                   setDraft((d) => ({
                     ...d,
-                    flavors: toggle(d.flavors, slug),
+                    vibes: toggle(d.vibes, slug),
                   }))
                 }
               />

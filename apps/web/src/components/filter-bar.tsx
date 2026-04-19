@@ -51,10 +51,10 @@ export function FilterBar() {
     commit({ ...filters, genres: filters.genres.filter((g) => g !== slug) });
   }
   function removeVibe(slug: string) {
-    commit({ ...filters, flavors: filters.flavors.filter((f) => f !== slug) });
+    commit({ ...filters, vibes: filters.vibes.filter((v) => v !== slug) });
   }
   function clearAll() {
-    commit({ when: 'all', genres: [], flavors: [] });
+    commit({ when: 'all', genres: [], vibes: [] });
   }
 
   return (
@@ -95,7 +95,7 @@ export function FilterBar() {
             {labelForGenre(slug)}
           </ActiveChip>
         ))}
-        {filters.flavors.map((slug) => (
+        {filters.vibes.map((slug) => (
           <ActiveChip key={`v-${slug}`} onRemove={() => removeVibe(slug)}>
             {labelForVibe(slug)}
           </ActiveChip>

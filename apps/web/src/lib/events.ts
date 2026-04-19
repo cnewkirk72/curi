@@ -31,7 +31,7 @@ export type FeedEvent = {
   ends_at: string | null;
   image_url: string | null;
   genres: string[];
-  flavors: string[];
+  vibes: string[];
   price_min: number | null;
   price_max: number | null;
   ticket_url: string | null;
@@ -57,7 +57,7 @@ export type DetailEvent = {
   image_url: string | null;
   description: string | null;
   genres: string[];
-  flavors: string[];
+  vibes: string[];
   price_min: number | null;
   price_max: number | null;
   ticket_url: string | null;
@@ -86,7 +86,7 @@ type EventRow = {
   ends_at: string | null;
   image_url: string | null;
   genres: string[] | null;
-  flavors: string[] | null;
+  vibes: string[] | null;
   price_min: number | null;
   price_max: number | null;
   ticket_url: string | null;
@@ -104,7 +104,7 @@ type EventRow = {
  * Fetch upcoming NYC events, ordered by start time.
  *
  * Relies on the `events_starts_at_idx` + `events_city_starts_idx` indexes
- * for the sort, and on the `events_genres_gin` / `events_flavors_gin`
+ * for the sort, and on the `events_genres_gin` / `events_vibes_gin`
  * GIN indexes for the array-overlap filters — don't add filters that
  * would force a seq scan without matching indexes.
  */
@@ -125,7 +125,7 @@ export async function getUpcomingEvents({
       ends_at,
       image_url,
       genres,
-      flavors,
+      vibes,
       price_min,
       price_max,
       ticket_url,
@@ -156,8 +156,8 @@ export async function getUpcomingEvents({
   if (filters.genres.length) {
     query = query.overlaps('genres', filters.genres);
   }
-  if (filters.flavors.length) {
-    query = query.overlaps('flavors', filters.flavors);
+  if (filters.vibes.length) {
+    query = query.overlaps('vibes', filters.vibes);
   }
 
   const { data, error } = await query
@@ -182,7 +182,7 @@ export async function getUpcomingEvents({
     ends_at: row.ends_at,
     image_url: row.image_url,
     genres: row.genres ?? [],
-    flavors: row.flavors ?? [],
+    vibes: row.vibes ?? [],
     price_min: row.price_min,
     price_max: row.price_max,
     ticket_url: row.ticket_url,
@@ -217,7 +217,7 @@ type EventDetailDbRow = {
   image_url: string | null;
   description: string | null;
   genres: string[] | null;
-  flavors: string[] | null;
+  vibes: string[] | null;
   price_min: number | null;
   price_max: number | null;
   ticket_url: string | null;
@@ -264,7 +264,7 @@ export async function getEventById(id: string): Promise<DetailEvent | null> {
       image_url,
       description,
       genres,
-      flavors,
+      vibes,
       price_min,
       price_max,
       ticket_url,
@@ -303,7 +303,7 @@ export async function getEventById(id: string): Promise<DetailEvent | null> {
     image_url: row.image_url,
     description: row.description,
     genres: row.genres ?? [],
-    flavors: row.flavors ?? [],
+    vibes: row.vibes ?? [],
     price_min: row.price_min,
     price_max: row.price_max,
     ticket_url: row.ticket_url,

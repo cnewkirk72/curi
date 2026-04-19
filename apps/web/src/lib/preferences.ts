@@ -14,7 +14,7 @@ import { createClient } from '@/lib/supabase/server';
 
 export type UserPrefs = {
   preferred_genres: string[];
-  preferred_flavors: string[];
+  preferred_vibes: string[];
   digest_email: boolean;
 };
 
@@ -23,7 +23,7 @@ export type UserPrefs = {
  * without branching on "row exists". */
 export const DEFAULT_PREFS: UserPrefs = {
   preferred_genres: [],
-  preferred_flavors: [],
+  preferred_vibes: [],
   digest_email: false,
 };
 
@@ -40,7 +40,7 @@ export async function getUserPrefs(): Promise<UserPrefs> {
   const supabase = createClient();
   const { data, error } = await supabase
     .from('user_prefs')
-    .select('preferred_genres, preferred_flavors, digest_email')
+    .select('preferred_genres, preferred_vibes, digest_email')
     .maybeSingle();
 
   if (error) {
@@ -57,7 +57,7 @@ export async function getUserPrefs(): Promise<UserPrefs> {
   const row = data as unknown as UserPrefs;
   return {
     preferred_genres: row.preferred_genres ?? [],
-    preferred_flavors: row.preferred_flavors ?? [],
+    preferred_vibes: row.preferred_vibes ?? [],
     digest_email: !!row.digest_email,
   };
 }

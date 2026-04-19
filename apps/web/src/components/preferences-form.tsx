@@ -54,10 +54,10 @@ export function PreferencesForm({ initial }: Props) {
     setStatus({ kind: 'idle' });
   }
 
-  function toggleFlavor(slug: string) {
+  function toggleVibe(slug: string) {
     setDraft((d) => ({
       ...d,
-      preferred_flavors: toggleList(d.preferred_flavors, slug),
+      preferred_vibes: toggleList(d.preferred_vibes, slug),
     }));
     setStatus({ kind: 'idle' });
   }
@@ -118,13 +118,13 @@ export function PreferencesForm({ initial }: Props) {
 
         <div className="my-5 h-px bg-border/60" aria-hidden />
 
-        {/* Flavors / vibes */}
+        {/* Vibes */}
         <OptionBlock
           label="Preferred vibes"
           hint="Tap to toggle"
           options={VIBE_OPTIONS}
-          selected={draft.preferred_flavors}
-          onToggle={toggleFlavor}
+          selected={draft.preferred_vibes}
+          onToggle={toggleVibe}
         />
 
         <div className="my-5 h-px bg-border/60" aria-hidden />
@@ -226,7 +226,7 @@ function toggleList(list: string[], slug: string): string[] {
 function prefsEqual(a: UserPrefs, b: UserPrefs): boolean {
   if (a.digest_email !== b.digest_email) return false;
   if (!arrayEq(a.preferred_genres, b.preferred_genres)) return false;
-  if (!arrayEq(a.preferred_flavors, b.preferred_flavors)) return false;
+  if (!arrayEq(a.preferred_vibes, b.preferred_vibes)) return false;
   return true;
 }
 
