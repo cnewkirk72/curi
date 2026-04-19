@@ -5,9 +5,9 @@
 // Two usage modes:
 //   1. Web search — Claude calls this when training knowledge is thin
 //      on an artist and it wants recent bio/press/RA context.
-//   2. Domain-scoped profile search — `findProfileUrl` restricts
+//   2. Domain-scoped profile search — `findProfileUrls` restricts
 //      results to soundcloud.com or bandcamp.com so the tier-3
-//      self-tag fetch has a concrete URL to hand to Firecrawl.
+//      self-tag fetch has concrete URL candidates to hand to Firecrawl.
 
 import { env } from './env.js';
 
@@ -126,20 +126,36 @@ export async function searchExa(
 }
 
 /**
- * Top-1 domain-scoped lookup. Returns null when nothing comes back.
- * Callers verify the profile (bio/city/genre cross-check vs event
- * context) before trusting it — generic names produce look-alike
- * profile hits and we don't want Firecrawl scraping the wrong artist.
+ * Domain-scoped profile search returning up to `numResults` candidates.
+ * The bare artist name outperforms `"${name} ${platform} profile"` on
+ * underground acts with unusual handles (numbers, underscores) —
+ * Exa's neural ranking already prefers profile pages when the domain
+ * is scoped, and the extra keyword narrows recall. Callers should
+ * verify candidates against the event context (bio/city/genre
+ * cross-check) before handing a URL to Firecrawl; common names
+ * produce look-alike profile hits for multiple unrelated artists.
+ */
+export async function findProfileUrls(
+  artistName: string,
+  platform: 'soundcloud' | 'bandcamp',
+  numResults = 3,
+): Promise<ExaResult[]> {
+  const domain = platform === 'soundcloud' ? 'soundcloud.com' : 'bandcamp.com';
+  return searchExa(artistName, {
+    numResults,
+    includeDomains: [domain],
+    includeContents: false,
+  });
+}
+
+/**
+ * Back-compat single-result shim. Prefer `findProfileUrls` — the
+ * multi-candidate form lets callers disambiguate common names.
  */
 export async function findProfileUrl(
   artistName: string,
   platform: 'soundcloud' | 'bandcamp',
 ): Promise<ExaResult | null> {
-  const domain = platform === 'soundcloud' ? 'soundcloud.com' : 'bandcamp.com';
-  const results = await searchExa(`${artistName} ${platform} profile`, {
-    numResults: 3,
-    includeDomains: [domain],
-    includeContents: false,
-  });
+  const results = await findProfileUrls(artistName, platform, 3);
   return results[0] ?? null;
 }

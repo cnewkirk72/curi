@@ -27,7 +27,7 @@ import {
   type ToolDefinition,
   type ToolInvocation,
 } from './anthropic.js';
-import { searchExa, findProfileUrl, type ExaResult } from './exa.js';
+import { searchExa, findProfileUrls, type ExaResult } from './exa.js';
 import { fetchArtistSelfTags } from './firecrawl.js';
 import { findNearMatch, normalizeForTaxonomy } from './taxonomy-fuzzy.js';
 
@@ -134,7 +134,7 @@ function buildSystemPrompt(vocab: Vocabulary): string {
     '',
     '# Existing vocabulary',
     '',
-    'Use these existing terms **exactly** when they fit — spell them as shown, because the downstream pipeline uses exact matching. Only propose a new term when the artist genuinely does not fit any existing vocabulary, and spell carefully (a near-duplicate with a typo will create a junk row).',
+    'This list exists so you **recognize** and **spell consistently** when a term truly applies — it is NOT a menu to pick from. Only include a tag (existing or new) when it is directly supported by your training knowledge or by tool-result evidence for the specific artist in question. When a term does fit, spell it exactly as shown (the downstream pipeline uses exact matching). A near-duplicate with a typo creates a junk row; an unsupported pick from this list creates a wrong classification.',
     '',
     `Parent genres (${vocab.parentGenres.length}): ${vocab.parentGenres.join(', ') || '(none seeded yet)'}`,
     '',
@@ -151,6 +151,16 @@ function buildSystemPrompt(vocab: Vocabulary): string {
     'Do NOT call `fetch_artist_self_tags` on rock/jazz/folk/hip-hop acts — those have limited SoundCloud/Bandcamp presence and the call wastes credits.',
     '',
     "When you have a confident answer, call `submit_enrichment`. Always call it exactly once per artist — even if confidence is low, submit with `\"confidence\": \"low\"` and best-effort arrays rather than refusing.",
+    '',
+    '# Anti-patterns to avoid',
+    '',
+    'These are failure modes from prior runs — do not repeat them.',
+    '',
+    '- **Do not draw tags from the vocabulary list unless they are directly supported.** The vocabulary is for recognition, not selection. If "classic rock" is in the list but the artist is a Chicago house DJ, do NOT include "classic rock". Every tag you return must be grounded in specific evidence (training knowledge of this artist, or tool-result content).',
+    '- **Do not pad arrays with generic placeholders** like "club", "electronic-dance", or "dance music" when a more specific subgenre applies. If the artist plays Jersey club, return "jersey-club"; if they play deep house, return "deep-house" under the "house" parent. Bare "club" and "electronic-dance" are almost always wrong on this platform.',
+    '- **Do not conflate genres and subgenres.** A parent bucket like "house" belongs in `genres`, never in `subgenres`. A specific style like "deep-house" belongs in `subgenres`, never in `genres`.',
+    '- **Confidence reflects precision, not coverage.** "high" means you are confident in the specific tags you chose. If you had to guess between two close subgenres, use "medium". If signal is thin, use "low" and submit a minimal best-effort array — do not pad with guesses to make the result look more complete. Fewer, more-accurate tags beat more, shakier ones.',
+    '- **If Exa returns no profile candidates for an artist with a distinctive handle** (unusual spelling, numbers, underscores), you may call `fetch_artist_self_tags` directly with a guessed URL like `https://soundcloud.com/{slug}` — Firecrawl 404s on bad guesses are harmless, so this is worth trying once before giving up.',
     '',
     '# Output standards',
     '',
@@ -231,7 +241,7 @@ const TOOLS: ToolDefinition[] = [
   {
     name: 'find_artist_profile',
     description:
-      "Find an artist's SoundCloud or Bandcamp profile URL. Returns the top-matching URL. Cross-check the profile against the event context (bio/city/genre hints) before trusting it — common names produce look-alike profiles.",
+      "Search SoundCloud or Bandcamp for an artist's profile URL. Returns up to 3 candidate URLs with title + snippet so you can disambiguate common names — cross-check each candidate against the event context (bio/city/genre hints) before handing a URL to fetch_artist_self_tags. If no candidates come back for a distinctively-named underground artist, you may call fetch_artist_self_tags directly with a guessed URL (e.g. https://soundcloud.com/{slug}) — Firecrawl 404s on bad guesses are harmless.",
     input_schema: {
       type: 'object',
       properties: {
@@ -348,13 +358,22 @@ export async function enrichArtistWithLLM(
       case 'find_artist_profile': {
         const artistName = String(call.input.artist_name ?? '');
         const platform = call.input.platform as 'soundcloud' | 'bandcamp';
-        const result = await findProfileUrl(artistName, platform);
-        if (!result) return 'no profile found';
-        return [
-          `found: ${result.url}`,
-          `title: ${result.title ?? ''}`,
-          `snippet: ${result.snippet ?? ''}`,
-        ].join('\n');
+        const results = await findProfileUrls(artistName, platform, 3);
+        if (results.length === 0) {
+          return 'no candidates found on this platform';
+        }
+        return results
+          .map((r, i) => {
+            const lines = [
+              `[${i + 1}] ${r.url}`,
+              `    title: ${r.title ?? '(none)'}`,
+            ];
+            if (r.snippet) {
+              lines.push(`    snippet: ${r.snippet.slice(0, 200)}`);
+            }
+            return lines.join('\n');
+          })
+          .join('\n\n');
       }
       case 'fetch_artist_self_tags': {
         const profileUrl = String(call.input.profile_url ?? '');
