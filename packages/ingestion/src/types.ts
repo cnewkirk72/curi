@@ -18,6 +18,14 @@ export const RawEventSchema = z.object({
   description: z.string().nullable(),
   /** Artist names as parsed from the title / lineup. Normalizer will upsert these. */
   artistNames: z.array(z.string().min(1)),
+  /**
+   * Genre strings supplied directly by the source (e.g. RA's event.genres).
+   * Normalizer resolves these through taxonomy_map alongside the artist
+   * rollup — they act as a high-precision base-layer tag signal that
+   * doesn't depend on any individual artist having good MB coverage.
+   * Optional: sources without a genre field (plain HTML scrapers) omit it.
+   */
+  sourceGenres: z.array(z.string().min(1)).optional().default([]),
   /** The untouched source payload — we keep this for debugging + future re-parse. */
   raw: z.record(z.unknown()),
 });
