@@ -1,7 +1,10 @@
 import type { Config } from 'tailwindcss';
 
-// Phase-1 baseline. Full design tokens (Dazed/Boiler-Room-leaning palette,
-// mono/grotesque display font, single saturated accent) land in Phase 3.
+// Curi — Midnight + Cyan Glow.
+// Source of truth for these tokens is design-system/MASTER.md at the repo root;
+// any changes to palette/typography should land there first, then be mirrored
+// here. Colors use CSS variables (set in globals.css) so we can introduce
+// light mode later without touching the Tailwind config.
 const config: Config = {
   darkMode: ['class'],
   content: ['./src/**/*.{ts,tsx}'],
@@ -12,24 +15,144 @@ const config: Config = {
       screens: { '2xl': '1400px' },
     },
     extend: {
+      // ─── Color tokens ────────────────────────────────────────────────
       colors: {
-        background: 'hsl(var(--background))',
-        foreground: 'hsl(var(--foreground))',
-        muted: {
-          DEFAULT: 'hsl(var(--muted))',
-          foreground: 'hsl(var(--muted-foreground))',
-        },
+        // Canvas
+        'bg-deep': 'hsl(var(--bg-deep))',
+        'bg-base': 'hsl(var(--bg-base))',
+        'bg-elevated': 'var(--bg-elevated)',
+        'bg-elevated-hover': 'var(--bg-elevated-hover)',
+
+        // Text
+        'fg-primary': 'hsl(var(--fg-primary))',
+        'fg-muted': 'hsl(var(--fg-muted))',
+        'fg-dim': 'hsl(var(--fg-dim))',
+
+        // Primary accent (cyan)
         accent: {
           DEFAULT: 'hsl(var(--accent))',
-          foreground: 'hsl(var(--accent-foreground))',
+          hover: 'hsl(var(--accent-hover))',
+          deep: 'hsl(var(--accent-deep))',
+          glow: 'var(--accent-glow)',
+          chip: 'var(--accent-chip-bg)',
         },
-        border: 'hsl(var(--border))',
-        input: 'hsl(var(--input))',
-        ring: 'hsl(var(--ring))',
+
+        // Supporting accents (use sparingly — chip variety only)
+        violet: {
+          DEFAULT: 'hsl(var(--violet))',
+          chip: 'var(--violet-chip-bg)',
+        },
+        pale: {
+          DEFAULT: 'hsl(var(--pale))',
+          chip: 'var(--pale-chip-bg)',
+        },
+        amber: {
+          DEFAULT: 'hsl(var(--amber))',
+          chip: 'var(--amber-chip-bg)',
+        },
+
+        // Borders
+        border: 'var(--border)',
+        'border-strong': 'var(--border-strong)',
+
+        // Aliases so shadcn-style components keep working if we introduce
+        // any; map to our semantic tokens.
+        background: 'hsl(var(--bg-deep))',
+        foreground: 'hsl(var(--fg-primary))',
+        muted: {
+          DEFAULT: 'hsl(var(--bg-base))',
+          foreground: 'hsl(var(--fg-muted))',
+        },
+        ring: 'hsl(var(--accent))',
       },
+
+      // ─── Typography ──────────────────────────────────────────────────
       fontFamily: {
+        // Display: Space Grotesk — headings, event titles, section labels
+        display: ['var(--font-display)', 'system-ui', 'sans-serif'],
+        // Body: Inter — everything else (default sans)
         sans: ['var(--font-sans)', 'system-ui', 'sans-serif'],
-        mono: ['var(--font-mono)', 'ui-monospace', 'monospace'],
+      },
+      fontSize: {
+        // Mobile-optimized scale from MASTER.md
+        '2xs': ['12px', { lineHeight: '1.4' }],
+        xs: ['13px', { lineHeight: '1.4' }],
+        sm: ['14px', { lineHeight: '1.5' }],
+        base: ['16px', { lineHeight: '1.5' }],
+        lg: ['18px', { lineHeight: '1.5' }],
+        xl: ['22px', { lineHeight: '1.3', letterSpacing: '-0.01em' }],
+        '2xl': ['28px', { lineHeight: '1.2', letterSpacing: '-0.02em' }],
+        '3xl': ['36px', { lineHeight: '1.15', letterSpacing: '-0.02em' }],
+      },
+      letterSpacing: {
+        // Mirrors MASTER.md "-0.02em on display headings"
+        display: '-0.02em',
+      },
+
+      // ─── Radii ───────────────────────────────────────────────────────
+      borderRadius: {
+        // Cards, sheets, event images
+        '2xl': '16px',
+        // Inputs, small surfaces
+        xl: '12px',
+        // Chips, pills, avatars — tailwind's `rounded-full` already covers 999px,
+        // but alias for clarity.
+        pill: '999px',
+      },
+
+      // ─── Shadows (glow-based, not drop-based, since we're dark) ──────
+      boxShadow: {
+        glow: '0 0 24px rgba(34, 211, 238, 0.35)',
+        'glow-sm': '0 0 16px rgba(34, 211, 238, 0.25)',
+        'glow-lg': '0 0 40px rgba(34, 211, 238, 0.45)',
+        card: '0 12px 40px -16px rgba(0, 0, 0, 0.8)',
+        'nav-top': '0 -1px 0 rgba(255, 255, 255, 0.06) inset',
+      },
+
+      // ─── Blur ────────────────────────────────────────────────────────
+      backdropBlur: {
+        glass: '20px',
+      },
+      backdropSaturate: {
+        glass: '1.4',
+      },
+
+      // ─── Motion ──────────────────────────────────────────────────────
+      transitionTimingFunction: {
+        // MASTER.md easing — expo-out for entrances
+        expo: 'cubic-bezier(0.16, 1, 0.3, 1)',
+      },
+      transitionDuration: {
+        // 200ms micro, 280ms sheet/modal
+        micro: '200ms',
+        sheet: '280ms',
+      },
+
+      // ─── Keyframes + animations (ambient blobs, press, enter) ────────
+      keyframes: {
+        blob: {
+          '0%, 100%': {
+            transform: 'translate(0px, 0px) scale(1)',
+            opacity: '0.14',
+          },
+          '33%': {
+            transform: 'translate(20px, -30px) scale(1.08)',
+            opacity: '0.18',
+          },
+          '66%': {
+            transform: 'translate(-15px, 20px) scale(0.95)',
+            opacity: '0.11',
+          },
+        },
+        'enter-up': {
+          '0%': { transform: 'translateY(8px)', opacity: '0' },
+          '100%': { transform: 'translateY(0)', opacity: '1' },
+        },
+      },
+      animation: {
+        // 18s cycle per MASTER.md "12-20s" range
+        blob: 'blob 18s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+        'enter-up': 'enter-up 280ms cubic-bezier(0.16, 1, 0.3, 1) both',
       },
     },
   },

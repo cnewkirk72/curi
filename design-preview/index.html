@@ -1,0 +1,944 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Curi — design preview</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            display: ['Space Grotesk', 'system-ui', 'sans-serif'],
+            sans: ['Inter', 'system-ui', 'sans-serif'],
+          },
+          colors: {
+            curi: {
+              deep: '#05070D',
+              base: '#0A0E1A',
+              accent: '#22D3EE',
+              accentHover: '#67E8F9',
+              accentDeep: '#0891B2',
+              muted: '#8A8F98',
+              dim: '#5A5F68',
+            },
+          },
+          boxShadow: {
+            glow: '0 0 24px rgba(34,211,238,0.35)',
+            card: '0 12px 40px -16px rgba(0,0,0,0.8)',
+          },
+          animation: {
+            blob: 'blob 18s ease-in-out infinite',
+          },
+          keyframes: {
+            blob: {
+              '0%, 100%': { transform: 'translate(0, 0) scale(1)' },
+              '33%': { transform: 'translate(20px, -24px) scale(1.05)' },
+              '66%': { transform: 'translate(-18px, 16px) scale(0.96)' },
+            },
+          },
+        },
+      },
+    };
+  </script>
+  <style>
+    html, body { background: #000; color: #EDEDEF; font-family: 'Inter', system-ui, sans-serif; }
+    body { -webkit-font-smoothing: antialiased; }
+    .tnum { font-variant-numeric: tabular-nums; }
+    .no-scrollbar::-webkit-scrollbar { display: none; }
+    .no-scrollbar { scrollbar-width: none; }
+    @media (prefers-reduced-motion: reduce) {
+      .animate-blob { animation: none !important; }
+    }
+  </style>
+</head>
+<body class="min-h-screen">
+  <div id="root"></div>
+
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+
+  <script type="text/babel" data-presets="react">
+    const { useState, useEffect, useMemo, useRef } = React;
+
+    // ─── Lucide icon wrapper ────────────────────────────────────────────
+    const Icon = ({ name, size = 20, className = '', strokeWidth = 1.75 }) => {
+      const ref = useRef(null);
+      useEffect(() => {
+        if (ref.current) {
+          ref.current.innerHTML = '';
+          const svg = lucide.createElement(lucide.icons[name] || lucide.icons['HelpCircle']);
+          svg.setAttribute('width', size);
+          svg.setAttribute('height', size);
+          svg.setAttribute('stroke-width', strokeWidth);
+          svg.setAttribute('class', className);
+          ref.current.appendChild(svg);
+        }
+      }, [name, size, strokeWidth, className]);
+      return <span ref={ref} className="inline-flex shrink-0" aria-hidden="true" />;
+    };
+
+    // ─── Mock data: 8 realistic NYC events ──────────────────────────────
+    const EVENTS = [
+      {
+        id: 'e1',
+        title: 'SHIFT',
+        subtitle: 'Sherelle + Elkka + Aurora Halal',
+        venue: 'Nowadays',
+        neighborhood: 'Ridgewood, Queens',
+        date: 'Sat, Apr 25',
+        shortDate: 'SAT 4/25',
+        time: '10:00 PM – 6:00 AM',
+        genres: ['UK Garage', 'Techno'],
+        vibes: ['Dancefloor', 'Long-set'],
+        artists: ['Sherelle', 'Elkka', 'Aurora Halal'],
+        price: '$25 – $35',
+        source: 'Resident Advisor',
+        gradient: 'from-cyan-500/30 via-blue-500/15 to-violet-500/15',
+        featured: true,
+        description: 'Sherelle returns to Nowadays for eight hours of UK garage, breakbeat, and 160bpm jungle. Aurora Halal opens. Expect the room to be molten by 2am.',
+        ticketUrl: '#',
+      },
+      {
+        id: 'e2',
+        title: 'HALF MOON presents',
+        subtitle: 'Kia + Priori (all night long)',
+        venue: 'Public Records',
+        neighborhood: 'Gowanus, Brooklyn',
+        date: 'Fri, Apr 24',
+        shortDate: 'FRI 4/24',
+        time: '10:00 PM – 4:00 AM',
+        genres: ['House', 'Dub Techno'],
+        vibes: ['Listening', 'Deep'],
+        artists: ['Kia', 'Priori'],
+        price: '$20 – $30',
+        source: 'Public Records',
+        gradient: 'from-violet-500/25 via-fuchsia-500/15 to-cyan-500/15',
+        featured: true,
+        description: 'Kia and Priori trade all night on the Audio-Technica / D&B K2 system. One of the cleanest rooms in the city for deep, patient sets.',
+        ticketUrl: '#',
+      },
+      {
+        id: 'e3',
+        title: 'Elsewhere Hall',
+        subtitle: 'Floating Points (live) + Galcher Lustwerk',
+        venue: 'Elsewhere',
+        neighborhood: 'Bushwick, Brooklyn',
+        date: 'Sat, Apr 25',
+        shortDate: 'SAT 4/25',
+        time: '10:00 PM – 4:00 AM',
+        genres: ['Electronica', 'Deep House'],
+        vibes: ['Live', 'Headliner'],
+        artists: ['Floating Points', 'Galcher Lustwerk'],
+        price: '$45 – $55',
+        source: 'Elsewhere',
+        gradient: 'from-sky-500/25 via-cyan-500/20 to-emerald-500/10',
+        featured: false,
+        description: 'Sam Shepherd brings his full live rig for a rare extended set. Galcher Lustwerk warms up.',
+        ticketUrl: '#',
+      },
+      {
+        id: 'e4',
+        title: 'Mutual Dreams',
+        subtitle: 'upsammy + Ciel',
+        venue: 'Basement',
+        neighborhood: 'Ridgewood, Queens',
+        date: 'Sun, Apr 26',
+        shortDate: 'SUN 4/26',
+        time: '11:00 PM – 8:00 AM',
+        genres: ['Techno', 'Electro'],
+        vibes: ['Underground', 'Late'],
+        artists: ['upsammy', 'Ciel', 'Turtle Bugg'],
+        price: '$30',
+        source: 'Resident Advisor',
+        gradient: 'from-cyan-400/20 via-indigo-500/15 to-slate-700/10',
+        featured: false,
+        description: 'Basement opens up the main room until 8am. upsammy headlines.',
+        ticketUrl: '#',
+      },
+      {
+        id: 'e5',
+        title: 'Soft Opening',
+        subtitle: 'Perel (live) + DJ Voices',
+        venue: 'Bossa Nova Civic Club',
+        neighborhood: 'Bushwick, Brooklyn',
+        date: 'Thu, Apr 23',
+        shortDate: 'THU 4/23',
+        time: '10:00 PM – 4:00 AM',
+        genres: ['Italo', 'EBM'],
+        vibes: ['Sweaty', 'Vocal'],
+        artists: ['Perel', 'DJ Voices'],
+        price: '$20',
+        source: 'Resident Advisor',
+        gradient: 'from-fuchsia-500/25 via-rose-500/15 to-cyan-400/10',
+        featured: false,
+        description: 'Perel brings her industrial-pop live show to Bossa\'s tight room.',
+        ticketUrl: '#',
+      },
+      {
+        id: 'e6',
+        title: 'Sustain-Release satellite',
+        subtitle: 'Volvox + Nicky Siano',
+        venue: 'Knockdown Center',
+        neighborhood: 'Maspeth, Queens',
+        date: 'Sat, May 2',
+        shortDate: 'SAT 5/2',
+        time: '11:00 PM – 8:00 AM',
+        genres: ['Disco', 'House'],
+        vibes: ['Long-set', 'Classic'],
+        artists: ['Volvox', 'Nicky Siano', 'Shy One'],
+        price: '$40 – $55',
+        source: 'Resident Advisor',
+        gradient: 'from-amber-400/20 via-rose-500/15 to-cyan-400/10',
+        featured: true,
+        description: 'Nicky Siano — a Loft/Gallery original — plays the full night alongside Volvox. Start early.',
+        ticketUrl: '#',
+      },
+      {
+        id: 'e7',
+        title: 'Good Room presents',
+        subtitle: 'Palms Trax (all night long)',
+        venue: 'Good Room',
+        neighborhood: 'Greenpoint, Brooklyn',
+        date: 'Fri, May 1',
+        shortDate: 'FRI 5/1',
+        time: '10:00 PM – 4:00 AM',
+        genres: ['House', 'Disco'],
+        vibes: ['All-night', 'Intimate'],
+        artists: ['Palms Trax'],
+        price: '$25 – $35',
+        source: 'Resident Advisor',
+        gradient: 'from-cyan-500/25 via-teal-500/15 to-blue-500/15',
+        featured: false,
+        description: 'Palms Trax plays open-to-close in Good Room\'s main, no support.',
+        ticketUrl: '#',
+      },
+      {
+        id: 'e8',
+        title: 'Unter',
+        subtitle: 'Location TBA',
+        venue: 'Undisclosed',
+        neighborhood: 'Location on day-of',
+        date: 'Sat, May 9',
+        shortDate: 'SAT 5/9',
+        time: '11:00 PM – late',
+        genres: ['Techno', 'Industrial'],
+        vibes: ['Warehouse', 'No-photos'],
+        artists: ['Rrose', 'SPFDJ', 'Pearl'],
+        price: '$40',
+        source: 'Resident Advisor',
+        gradient: 'from-slate-600/25 via-cyan-700/15 to-violet-700/15',
+        featured: false,
+        description: 'Address released the day of. Phones in pouches. Rrose + SPFDJ closing.',
+        ticketUrl: '#',
+      },
+    ];
+
+    // All genres + vibes derived from mock data
+    const ALL_GENRES = Array.from(new Set(EVENTS.flatMap(e => e.genres))).sort();
+    const ALL_VIBES = Array.from(new Set(EVENTS.flatMap(e => e.vibes))).sort();
+
+    // ─── Small reusable bits ────────────────────────────────────────────
+    const Chip = ({ children, selected = false, variant = 'cyan', className = '', onClick }) => {
+      const variants = {
+        cyan: selected
+          ? 'bg-cyan-400/20 border-cyan-400/50 text-cyan-200'
+          : 'bg-cyan-400/[0.10] border-cyan-400/20 text-cyan-300',
+        violet: selected
+          ? 'bg-violet-400/20 border-violet-400/50 text-violet-200'
+          : 'bg-violet-400/[0.10] border-violet-400/20 text-violet-300',
+        neutral: selected
+          ? 'bg-white/15 border-white/30 text-white'
+          : 'bg-white/[0.05] border-white/10 text-white/70',
+      };
+      return (
+        <button
+          onClick={onClick}
+          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-[12px] font-medium tracking-tight transition active:scale-[0.97] ${variants[variant]} ${className}`}
+        >
+          {children}
+        </button>
+      );
+    };
+
+    const GlassCard = ({ children, onClick, className = '' }) => (
+      <div
+        onClick={onClick}
+        className={`relative rounded-2xl border border-white/[0.08] bg-white/[0.04] backdrop-blur-xl shadow-card overflow-hidden transition ${onClick ? 'cursor-pointer active:scale-[0.99] hover:border-white/[0.14]' : ''} ${className}`}
+      >
+        {children}
+      </div>
+    );
+
+    const PrimaryButton = ({ children, onClick, icon, className = '' }) => (
+      <button
+        onClick={onClick}
+        className={`inline-flex items-center justify-center gap-2 rounded-full bg-curi-accent text-black font-semibold px-6 py-3.5 shadow-glow transition active:scale-[0.97] hover:bg-curi-accentHover ${className}`}
+      >
+        {icon && <Icon name={icon} size={18} strokeWidth={2.25} />}
+        {children}
+      </button>
+    );
+
+    // ─── Screens ────────────────────────────────────────────────────────
+
+    function HomeScreen({ onOpenEvent, onOpenFilter, activeFilters }) {
+      const featured = EVENTS.filter(e => e.featured);
+      const rest = EVENTS.filter(e => !e.featured);
+
+      return (
+        <div className="pb-24">
+          {/* Header */}
+          <header className="sticky top-0 z-20 bg-curi-deep/70 backdrop-blur-xl border-b border-white/[0.06]">
+            <div className="px-5 pt-12 pb-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-[0.2em] text-curi-muted">
+                    <Icon name="MapPin" size={12} strokeWidth={2} />
+                    New York City
+                  </div>
+                  <h1 className="mt-1 font-display text-[28px] font-semibold leading-none tracking-[-0.02em]">
+                    Tonight &amp; ahead
+                  </h1>
+                </div>
+                <button className="h-10 w-10 rounded-full bg-white/[0.05] border border-white/10 flex items-center justify-center hover:bg-white/[0.08] transition">
+                  <Icon name="Search" size={18} />
+                </button>
+              </div>
+
+              {/* Genre quick-filter rail */}
+              <div className="mt-4 -mx-5 px-5 flex gap-2 overflow-x-auto no-scrollbar">
+                <button
+                  onClick={onOpenFilter}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-cyan-400/50 bg-cyan-400/15 text-cyan-200 text-[12px] font-medium whitespace-nowrap active:scale-[0.97]"
+                >
+                  <Icon name="SlidersHorizontal" size={13} strokeWidth={2.25} />
+                  Filter
+                  {activeFilters > 0 && (
+                    <span className="ml-0.5 h-4 min-w-[16px] px-1 rounded-full bg-curi-accent text-black text-[10px] font-bold flex items-center justify-center tnum">
+                      {activeFilters}
+                    </span>
+                  )}
+                </button>
+                {['Techno', 'House', 'UK Garage', 'Disco', 'Ambient', 'Electronica'].map(g => (
+                  <Chip key={g} variant="neutral">{g}</Chip>
+                ))}
+              </div>
+            </div>
+          </header>
+
+          {/* Featured carousel */}
+          <section className="pt-5 px-5">
+            <h2 className="text-[11px] uppercase tracking-[0.2em] text-curi-muted mb-3">
+              Featured this week
+            </h2>
+            <div className="-mx-5 px-5 flex gap-3 overflow-x-auto no-scrollbar snap-x snap-mandatory">
+              {featured.map(event => (
+                <GlassCard
+                  key={event.id}
+                  onClick={() => onOpenEvent(event)}
+                  className="snap-start shrink-0 w-[280px]"
+                >
+                  <div className={`relative h-32 bg-gradient-to-br ${event.gradient}`}>
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/10 to-transparent" />
+                    <div className="absolute top-3 left-3 px-2 py-1 rounded-full bg-black/50 backdrop-blur text-[10px] font-medium tnum tracking-wide">
+                      {event.shortDate}
+                    </div>
+                  </div>
+                  <div className="p-4 space-y-2">
+                    <h3 className="font-display font-semibold text-[17px] leading-tight tracking-[-0.015em]">
+                      {event.title}
+                    </h3>
+                    <p className="text-[13px] text-curi-muted leading-snug line-clamp-1">{event.subtitle}</p>
+                    <div className="flex items-center justify-between pt-1">
+                      <div className="flex items-center gap-1 text-[12px] text-white/80">
+                        <Icon name="MapPin" size={11} strokeWidth={2} />
+                        <span>{event.venue}</span>
+                      </div>
+                      <span className="text-[12px] text-curi-accent font-medium tnum">{event.price.split(' – ')[0]}</span>
+                    </div>
+                  </div>
+                </GlassCard>
+              ))}
+            </div>
+          </section>
+
+          {/* Date-grouped feed */}
+          <section className="pt-6 px-5 space-y-6">
+            {groupByDate(rest).map(({ date, shortDate, items }) => (
+              <div key={date}>
+                <div className="flex items-baseline justify-between mb-2.5">
+                  <h2 className="font-display text-[18px] font-semibold tracking-[-0.015em]">{date}</h2>
+                  <span className="text-[11px] uppercase tracking-[0.2em] text-curi-muted tnum">{items.length} events</span>
+                </div>
+                <div className="space-y-2.5">
+                  {items.map(event => (
+                    <EventListRow key={event.id} event={event} onClick={() => onOpenEvent(event)} />
+                  ))}
+                </div>
+              </div>
+            ))}
+          </section>
+        </div>
+      );
+    }
+
+    function EventListRow({ event, onClick }) {
+      return (
+        <GlassCard onClick={onClick}>
+          <div className="flex">
+            <div className={`w-[92px] shrink-0 bg-gradient-to-br ${event.gradient} relative`}>
+              <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent" />
+              <div className="absolute inset-0 flex flex-col items-center justify-center">
+                <span className="text-[10px] uppercase tracking-[0.15em] text-white/70 tnum">
+                  {event.shortDate.split(' ')[0]}
+                </span>
+                <span className="font-display text-[22px] font-semibold leading-none tnum mt-1">
+                  {event.shortDate.split(' ')[1]}
+                </span>
+              </div>
+            </div>
+            <div className="flex-1 p-3.5 min-w-0">
+              <h3 className="font-display font-semibold text-[15px] leading-tight tracking-[-0.01em] truncate">
+                {event.title}
+              </h3>
+              <p className="text-[12px] text-curi-muted leading-snug truncate mt-0.5">
+                {event.subtitle}
+              </p>
+              <div className="mt-2 flex items-center gap-3 text-[11px] text-white/60">
+                <span className="flex items-center gap-1 truncate">
+                  <Icon name="MapPin" size={10} strokeWidth={2} />
+                  <span className="truncate">{event.venue}</span>
+                </span>
+                <span className="flex items-center gap-1 tnum whitespace-nowrap">
+                  <Icon name="Clock" size={10} strokeWidth={2} />
+                  {event.time.split(' – ')[0]}
+                </span>
+              </div>
+              <div className="mt-2 flex gap-1.5 flex-wrap">
+                {event.genres.slice(0, 2).map(g => (
+                  <span key={g} className="text-[10px] px-2 py-0.5 rounded-full bg-cyan-400/10 text-cyan-300 border border-cyan-400/20 font-medium">
+                    {g}
+                  </span>
+                ))}
+              </div>
+            </div>
+          </div>
+        </GlassCard>
+      );
+    }
+
+    function groupByDate(events) {
+      const order = ['THU 4/23', 'FRI 4/24', 'SAT 4/25', 'SUN 4/26', 'FRI 5/1', 'SAT 5/2', 'SAT 5/9'];
+      const map = new Map();
+      for (const e of events) {
+        if (!map.has(e.shortDate)) map.set(e.shortDate, { date: e.date, shortDate: e.shortDate, items: [] });
+        map.get(e.shortDate).items.push(e);
+      }
+      return order.filter(d => map.has(d)).map(d => map.get(d));
+    }
+
+    // ─── Event Detail ────────────────────────────────────────────────────
+    function EventDetail({ event, saved, onBack, onToggleSave }) {
+      return (
+        <div className="pb-32">
+          {/* Hero image */}
+          <div className={`relative h-72 bg-gradient-to-br ${event.gradient}`}>
+            <div className="absolute inset-0 bg-gradient-to-t from-curi-deep via-curi-deep/30 to-transparent" />
+            {/* Back button */}
+            <button
+              onClick={onBack}
+              className="absolute top-12 left-4 h-10 w-10 rounded-full bg-black/40 backdrop-blur-md border border-white/10 flex items-center justify-center active:scale-[0.95]"
+            >
+              <Icon name="ChevronLeft" size={20} />
+            </button>
+            {/* Save button */}
+            <button
+              onClick={onToggleSave}
+              className={`absolute top-12 right-4 h-10 w-10 rounded-full backdrop-blur-md border flex items-center justify-center active:scale-[0.95] ${
+                saved
+                  ? 'bg-curi-accent/20 border-curi-accent/50 text-curi-accent'
+                  : 'bg-black/40 border-white/10 text-white'
+              }`}
+            >
+              <Icon name={saved ? 'BookmarkCheck' : 'Bookmark'} size={18} strokeWidth={2} />
+            </button>
+
+            {/* Hero text stacked at bottom */}
+            <div className="absolute bottom-0 left-0 right-0 p-5">
+              <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.2em] text-cyan-300 mb-2">
+                <Icon name="Calendar" size={12} strokeWidth={2.25} />
+                <span className="tnum">{event.shortDate}</span>
+                <span className="text-white/30">·</span>
+                <span className="tnum">{event.time.split(' – ')[0]}</span>
+              </div>
+              <h1 className="font-display text-[32px] font-semibold leading-[1.05] tracking-[-0.02em]">
+                {event.title}
+              </h1>
+              <p className="mt-1.5 text-[15px] text-white/80 leading-snug">{event.subtitle}</p>
+            </div>
+          </div>
+
+          {/* Body */}
+          <div className="px-5 pt-5 space-y-5">
+            {/* Venue card */}
+            <GlassCard className="p-4">
+              <div className="flex items-center gap-3">
+                <div className="h-11 w-11 rounded-xl bg-gradient-to-br from-cyan-400/30 to-violet-500/20 border border-white/10 flex items-center justify-center">
+                  <Icon name="MapPin" size={18} className="text-cyan-300" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="font-display font-semibold text-[15px]">{event.venue}</div>
+                  <div className="text-[12px] text-curi-muted truncate">{event.neighborhood}</div>
+                </div>
+                <Icon name="ChevronRight" size={18} className="text-curi-muted" />
+              </div>
+            </GlassCard>
+
+            {/* Lineup */}
+            <section>
+              <h2 className="text-[11px] uppercase tracking-[0.2em] text-curi-muted mb-2.5">
+                Lineup
+              </h2>
+              <div className="space-y-2">
+                {event.artists.map((a, i) => (
+                  <div key={a} className="flex items-center gap-3">
+                    <div className={`h-10 w-10 rounded-full bg-gradient-to-br ${
+                      i === 0 ? 'from-cyan-400 to-blue-500' : 'from-violet-400 to-fuchsia-500'
+                    } flex items-center justify-center font-display font-semibold text-[14px] text-black shadow-glow`}>
+                      {a.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()}
+                    </div>
+                    <div className="flex-1">
+                      <div className="font-medium text-[15px] leading-tight">{a}</div>
+                      {i === 0 && <div className="text-[11px] text-cyan-300 uppercase tracking-[0.15em] mt-0.5">Headliner</div>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+
+            {/* Genres + vibes */}
+            <section>
+              <h2 className="text-[11px] uppercase tracking-[0.2em] text-curi-muted mb-2.5">
+                Genres &amp; vibe
+              </h2>
+              <div className="flex flex-wrap gap-1.5">
+                {event.genres.map(g => <Chip key={g}>{g}</Chip>)}
+                {event.vibes.map(v => <Chip key={v} variant="violet">{v}</Chip>)}
+              </div>
+            </section>
+
+            {/* About */}
+            <section>
+              <h2 className="text-[11px] uppercase tracking-[0.2em] text-curi-muted mb-2">
+                About
+              </h2>
+              <p className="text-[14px] leading-relaxed text-white/80">{event.description}</p>
+            </section>
+
+            {/* Meta */}
+            <div className="grid grid-cols-2 gap-3 pt-1">
+              <GlassCard className="p-3">
+                <div className="text-[11px] text-curi-muted uppercase tracking-[0.15em]">Price</div>
+                <div className="font-display text-[17px] font-semibold tnum mt-1">{event.price}</div>
+              </GlassCard>
+              <GlassCard className="p-3">
+                <div className="text-[11px] text-curi-muted uppercase tracking-[0.15em]">Source</div>
+                <div className="font-display text-[17px] font-semibold mt-1">{event.source}</div>
+              </GlassCard>
+            </div>
+          </div>
+
+          {/* Fixed bottom CTA */}
+          <div className="fixed bottom-0 left-0 right-0 max-w-[430px] mx-auto">
+            <div className="h-20 bg-gradient-to-t from-curi-deep via-curi-deep/95 to-transparent" />
+            <div className="bg-curi-deep px-5 pb-8 pt-2 border-t border-white/[0.06]">
+              <PrimaryButton icon="ExternalLink" className="w-full">
+                Get tickets &nbsp;·&nbsp; {event.price.split(' – ')[0]}
+              </PrimaryButton>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ─── Filter Sheet ────────────────────────────────────────────────────
+    function FilterSheet({ open, onClose, selectedGenres, selectedVibes, onToggleGenre, onToggleVibe, onClear }) {
+      if (!open) return null;
+      const count = selectedGenres.size + selectedVibes.size;
+      return (
+        <div className="fixed inset-0 z-30 max-w-[430px] mx-auto">
+          {/* Scrim */}
+          <button
+            onClick={onClose}
+            className="absolute inset-0 bg-black/60 backdrop-blur-md transition"
+          />
+          {/* Sheet */}
+          <div className="absolute bottom-0 left-0 right-0 rounded-t-[28px] bg-curi-base border-t border-white/10 shadow-[0_-20px_60px_-10px_rgba(0,0,0,0.8)]">
+            <div className="pt-3 pb-2 flex justify-center">
+              <div className="h-1 w-10 rounded-full bg-white/20" />
+            </div>
+            <div className="px-5 pb-8 max-h-[75vh] overflow-y-auto">
+              <div className="flex items-center justify-between mb-5">
+                <h2 className="font-display text-[22px] font-semibold tracking-[-0.02em]">Filter</h2>
+                <div className="flex items-center gap-2">
+                  {count > 0 && (
+                    <button onClick={onClear} className="text-[13px] text-curi-muted hover:text-white transition">
+                      Clear all
+                    </button>
+                  )}
+                  <button
+                    onClick={onClose}
+                    className="h-8 w-8 rounded-full bg-white/[0.05] border border-white/10 flex items-center justify-center"
+                  >
+                    <Icon name="X" size={16} />
+                  </button>
+                </div>
+              </div>
+
+              <section className="mb-6">
+                <h3 className="text-[11px] uppercase tracking-[0.2em] text-curi-muted mb-3">Genres</h3>
+                <div className="flex flex-wrap gap-2">
+                  {ALL_GENRES.map(g => (
+                    <Chip
+                      key={g}
+                      variant="cyan"
+                      selected={selectedGenres.has(g)}
+                      onClick={() => onToggleGenre(g)}
+                    >
+                      {g}
+                    </Chip>
+                  ))}
+                </div>
+              </section>
+
+              <section className="mb-6">
+                <h3 className="text-[11px] uppercase tracking-[0.2em] text-curi-muted mb-3">Vibe</h3>
+                <div className="flex flex-wrap gap-2">
+                  {ALL_VIBES.map(v => (
+                    <Chip
+                      key={v}
+                      variant="violet"
+                      selected={selectedVibes.has(v)}
+                      onClick={() => onToggleVibe(v)}
+                    >
+                      {v}
+                    </Chip>
+                  ))}
+                </div>
+              </section>
+
+              <section className="mb-6">
+                <h3 className="text-[11px] uppercase tracking-[0.2em] text-curi-muted mb-3">When</h3>
+                <div className="flex gap-2">
+                  {['This weekend', 'Next 7 days', 'This month', 'Custom'].map((w, i) => (
+                    <Chip key={w} variant="neutral" selected={i === 0}>
+                      {w}
+                    </Chip>
+                  ))}
+                </div>
+              </section>
+
+              <PrimaryButton icon="Check" onClick={onClose} className="w-full">
+                Show {count > 0 ? `${count} filtered` : 'all'} events
+              </PrimaryButton>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ─── Saved Screen ────────────────────────────────────────────────────
+    function SavedScreen({ savedIds, onOpenEvent }) {
+      const savedEvents = EVENTS.filter(e => savedIds.has(e.id));
+      return (
+        <div className="pb-24 px-5 pt-12">
+          <h1 className="font-display text-[28px] font-semibold tracking-[-0.02em]">Saved</h1>
+          <p className="text-[13px] text-curi-muted mt-1">
+            {savedEvents.length > 0
+              ? `${savedEvents.length} event${savedEvents.length === 1 ? '' : 's'} on your shortlist`
+              : 'Tap the bookmark on any event to save it'}
+          </p>
+
+          {savedEvents.length === 0 ? (
+            <div className="mt-16 flex flex-col items-center text-center">
+              <div className="h-16 w-16 rounded-full bg-cyan-400/10 border border-cyan-400/20 flex items-center justify-center mb-4">
+                <Icon name="Bookmark" size={28} className="text-cyan-300" strokeWidth={1.5} />
+              </div>
+              <div className="font-display text-[17px] font-semibold">No saves yet</div>
+              <div className="text-[13px] text-curi-muted mt-1 max-w-[260px]">
+                Browse the feed and tap <span className="text-cyan-300 font-medium">Bookmark</span> to build your shortlist.
+              </div>
+            </div>
+          ) : (
+            <div className="mt-5 space-y-2.5">
+              {savedEvents.map(event => (
+                <EventListRow key={event.id} event={event} onClick={() => onOpenEvent(event)} />
+              ))}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // ─── Profile Screen ──────────────────────────────────────────────────
+    function ProfileScreen({ prefs, onTogglePref }) {
+      return (
+        <div className="pb-24 px-5 pt-12">
+          <h1 className="font-display text-[28px] font-semibold tracking-[-0.02em]">Profile</h1>
+
+          {/* User card */}
+          <GlassCard className="mt-5 p-4">
+            <div className="flex items-center gap-3">
+              <div className="h-14 w-14 rounded-full bg-gradient-to-br from-cyan-400 to-blue-500 flex items-center justify-center font-display font-bold text-[19px] text-black shadow-glow">
+                CN
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="font-display font-semibold text-[17px]">Christian Newkirk</div>
+                <div className="text-[12px] text-curi-muted truncate">christiannewkirk@gmail.com</div>
+              </div>
+              <div className="flex items-center gap-1 px-2 py-1 rounded-full bg-white/[0.06] border border-white/10">
+                <svg className="h-3 w-3" viewBox="0 0 24 24" fill="currentColor"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
+                <span className="text-[11px] font-medium">Google</span>
+              </div>
+            </div>
+          </GlassCard>
+
+          {/* Genre preferences */}
+          <section className="mt-6">
+            <div className="flex items-baseline justify-between mb-2.5">
+              <h2 className="text-[11px] uppercase tracking-[0.2em] text-curi-muted">
+                Genres I like
+              </h2>
+              <span className="text-[11px] text-curi-muted">Tunes your feed</span>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {ALL_GENRES.map(g => (
+                <Chip
+                  key={g}
+                  variant="cyan"
+                  selected={prefs.has(g)}
+                  onClick={() => onTogglePref(g)}
+                >
+                  {prefs.has(g) && <Icon name="Check" size={11} strokeWidth={2.5} />}
+                  {g}
+                </Chip>
+              ))}
+            </div>
+          </section>
+
+          {/* Settings list */}
+          <section className="mt-8 space-y-1.5">
+            {[
+              { icon: 'Bell', label: 'Notifications', meta: 'On' },
+              { icon: 'Calendar', label: 'Add to calendar', meta: 'Apple' },
+              { icon: 'MapPin', label: 'Default city', meta: 'New York' },
+              { icon: 'HelpCircle', label: 'Help & feedback', meta: '' },
+              { icon: 'LogOut', label: 'Sign out', meta: '', danger: true },
+            ].map(row => (
+              <button
+                key={row.label}
+                className={`w-full flex items-center gap-3 p-3.5 rounded-xl border border-white/[0.06] bg-white/[0.02] hover:bg-white/[0.05] transition active:scale-[0.99] ${
+                  row.danger ? 'text-red-400' : 'text-white'
+                }`}
+              >
+                <Icon name={row.icon} size={17} className={row.danger ? 'text-red-400' : 'text-curi-muted'} />
+                <span className="flex-1 text-left text-[14px] font-medium">{row.label}</span>
+                {row.meta && <span className="text-[12px] text-curi-muted">{row.meta}</span>}
+                {!row.danger && <Icon name="ChevronRight" size={16} className="text-curi-dim" />}
+              </button>
+            ))}
+          </section>
+        </div>
+      );
+    }
+
+    // ─── Bottom Nav ──────────────────────────────────────────────────────
+    function BottomNav({ view, onChange, savedCount }) {
+      const items = [
+        { key: 'home', label: 'Browse', icon: 'Compass' },
+        { key: 'saved', label: 'Saved', icon: 'Bookmark', badge: savedCount },
+        { key: 'profile', label: 'Profile', icon: 'User' },
+      ];
+      return (
+        <nav className="fixed bottom-0 left-0 right-0 max-w-[430px] mx-auto z-20">
+          <div className="bg-curi-base/80 backdrop-blur-xl border-t border-white/[0.08]">
+            <div className="grid grid-cols-3 pt-2 pb-6">
+              {items.map(item => {
+                const active = view === item.key;
+                return (
+                  <button
+                    key={item.key}
+                    onClick={() => onChange(item.key)}
+                    className="flex flex-col items-center gap-1 py-2 active:scale-[0.94] transition"
+                  >
+                    <div className="relative">
+                      <Icon
+                        name={item.icon}
+                        size={22}
+                        strokeWidth={active ? 2.25 : 1.75}
+                        className={active ? 'text-curi-accent' : 'text-curi-muted'}
+                      />
+                      {item.badge > 0 && (
+                        <span className="absolute -top-1 -right-2 h-4 min-w-[16px] px-1 rounded-full bg-curi-accent text-black text-[10px] font-bold flex items-center justify-center tnum">
+                          {item.badge}
+                        </span>
+                      )}
+                    </div>
+                    <span className={`text-[10px] font-medium tracking-wide ${active ? 'text-curi-accent' : 'text-curi-dim'}`}>
+                      {item.label}
+                    </span>
+                    {active && <div className="absolute top-1 h-1 w-1 rounded-full bg-curi-accent shadow-glow" />}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </nav>
+      );
+    }
+
+    // ─── Sign-in Screen (shown once on first render for demo) ────────────
+    function SignInScreen({ onSignIn }) {
+      return (
+        <div className="min-h-screen flex flex-col items-center justify-between px-6 pt-20 pb-10 relative overflow-hidden">
+          {/* Ambient blobs */}
+          <div className="absolute -top-16 -right-16 h-72 w-72 rounded-full bg-cyan-500/20 blur-3xl animate-blob" />
+          <div className="absolute top-40 -left-24 h-64 w-64 rounded-full bg-blue-600/15 blur-3xl animate-blob" style={{ animationDelay: '-6s' }} />
+
+          <div className="relative z-10 text-center pt-20">
+            <div className="inline-flex h-16 w-16 rounded-2xl bg-gradient-to-br from-cyan-400 to-blue-500 items-center justify-center shadow-glow mb-6">
+              <span className="font-display font-bold text-[32px] text-black leading-none">C</span>
+            </div>
+            <h1 className="font-display text-[36px] font-semibold leading-[1.05] tracking-[-0.02em]">
+              Curi
+            </h1>
+            <p className="mt-3 text-[15px] text-curi-muted max-w-[280px] mx-auto leading-relaxed">
+              NYC electronic music, filtered by genre and vibe.
+            </p>
+          </div>
+
+          <div className="relative z-10 w-full space-y-3">
+            <button
+              onClick={onSignIn}
+              className="w-full flex items-center justify-center gap-3 rounded-full bg-white text-black font-semibold px-6 py-3.5 active:scale-[0.97] transition"
+            >
+              <svg className="h-5 w-5" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
+                <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+                <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
+                <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
+              </svg>
+              Continue with Google
+            </button>
+            <button
+              onClick={onSignIn}
+              className="w-full text-center text-[13px] text-curi-muted hover:text-white transition py-2"
+            >
+              Browse without signing in
+            </button>
+            <p className="text-center text-[11px] text-curi-dim pt-2 leading-relaxed">
+              By continuing you agree to terms &amp; privacy.
+            </p>
+          </div>
+        </div>
+      );
+    }
+
+    // ─── App shell ───────────────────────────────────────────────────────
+    function App() {
+      const [signedIn, setSignedIn] = useState(false);
+      const [view, setView] = useState('home');
+      const [selectedEvent, setSelectedEvent] = useState(null);
+      const [filterOpen, setFilterOpen] = useState(false);
+      const [selectedGenres, setSelectedGenres] = useState(new Set());
+      const [selectedVibes, setSelectedVibes] = useState(new Set());
+      const [savedIds, setSavedIds] = useState(new Set(['e2', 'e6']));
+      const [prefs, setPrefs] = useState(new Set(['Techno', 'House', 'UK Garage']));
+
+      const toggleGenre = g => setSelectedGenres(prev => {
+        const n = new Set(prev); n.has(g) ? n.delete(g) : n.add(g); return n;
+      });
+      const toggleVibe = v => setSelectedVibes(prev => {
+        const n = new Set(prev); n.has(v) ? n.delete(v) : n.add(v); return n;
+      });
+      const togglePref = g => setPrefs(prev => {
+        const n = new Set(prev); n.has(g) ? n.delete(g) : n.add(g); return n;
+      });
+      const toggleSave = id => setSavedIds(prev => {
+        const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n;
+      });
+
+      // Desktop frame styling around mobile viewport
+      return (
+        <div className="min-h-screen bg-black flex items-start justify-center">
+          <div className="w-full max-w-[430px] min-h-screen relative overflow-hidden bg-curi-deep
+                          sm:my-8 sm:min-h-[900px] sm:rounded-[44px] sm:border sm:border-white/10
+                          sm:shadow-[0_0_80px_-20px_rgba(34,211,238,0.25)]">
+
+            {/* Ambient blobs on every screen (subtle) */}
+            {!selectedEvent && signedIn && (
+              <>
+                <div className="pointer-events-none absolute -top-24 -right-20 h-72 w-72 rounded-full bg-cyan-500/10 blur-3xl animate-blob" />
+                <div className="pointer-events-none absolute top-96 -left-20 h-56 w-56 rounded-full bg-blue-600/8 blur-3xl animate-blob" style={{ animationDelay: '-10s' }} />
+              </>
+            )}
+
+            {!signedIn ? (
+              <SignInScreen onSignIn={() => setSignedIn(true)} />
+            ) : selectedEvent ? (
+              <EventDetail
+                event={selectedEvent}
+                saved={savedIds.has(selectedEvent.id)}
+                onBack={() => setSelectedEvent(null)}
+                onToggleSave={() => toggleSave(selectedEvent.id)}
+              />
+            ) : (
+              <>
+                {view === 'home' && (
+                  <HomeScreen
+                    onOpenEvent={setSelectedEvent}
+                    onOpenFilter={() => setFilterOpen(true)}
+                    activeFilters={selectedGenres.size + selectedVibes.size}
+                  />
+                )}
+                {view === 'saved' && (
+                  <SavedScreen savedIds={savedIds} onOpenEvent={setSelectedEvent} />
+                )}
+                {view === 'profile' && (
+                  <ProfileScreen prefs={prefs} onTogglePref={togglePref} />
+                )}
+                <BottomNav view={view} onChange={setView} savedCount={savedIds.size} />
+              </>
+            )}
+
+            <FilterSheet
+              open={filterOpen}
+              onClose={() => setFilterOpen(false)}
+              selectedGenres={selectedGenres}
+              selectedVibes={selectedVibes}
+              onToggleGenre={toggleGenre}
+              onToggleVibe={toggleVibe}
+              onClear={() => { setSelectedGenres(new Set()); setSelectedVibes(new Set()); }}
+            />
+          </div>
+
+          {/* Helper bar on desktop only */}
+          <div className="hidden lg:block fixed bottom-4 right-4 text-[11px] text-white/40 font-mono">
+            Curi preview · midnight+cyan · design-system/MASTER.md
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>

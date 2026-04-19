@@ -26,12 +26,35 @@ See `apps/web/README.md` and `packages/ingestion/README.md` for details.
 
 ## Deploy
 
-- **Web** — Vercel (Next.js preset). Not wired up yet; spins up in Phase 3
-  once `apps/web` has real pages to serve.
-- **Ingestion** — Railway cron, driven by the root-level `Dockerfile` and
-  `railway.json`. Ships only the compiled `packages/ingestion/dist/` +
+- **Web** — Vercel (Next.js preset). Wires up in Phase 3.
+- **Ingestion** — Railway cron (live), driven by the root-level `Dockerfile`
+  and `railway.json`. Ships only the compiled `packages/ingestion/dist/` +
   production deps. See setup below.
 - **DB/Auth** — Supabase (project `Curi`, region `us-east-1`).
+
+### Architecture
+
+```
+                         ┌──────────────────────────┐
+                         │      Supabase (DB)       │
+                         │  Postgres + Auth + RLS   │
+                         └──┬───────────────────┬───┘
+         ┌──────────────────┘                   │
+         │ service-role key (writes)            │ anon key (reads, scoped by RLS)
+         │ server-only                          │ + OAuth via browser
+  ┌──────▼──────────┐                   ┌───────▼──────────┐
+  │  Railway cron   │                   │  Vercel (Next)   │
+  │  @curi/ingestion│                   │  @curi/web (PWA) │
+  │  nightly 10 UTC │                   │  public routes + │
+  │  scrapers + MB  │                   │  Google OAuth    │
+  └─────────────────┘                   └──────────────────┘
+```
+
+Vercel and Railway never talk to each other directly. Both hit Supabase with
+different keys: Railway uses the service role key (bypasses RLS, server-only)
+to write events; Vercel uses the anon key (RLS-gated) to read them, and the
+Google OAuth flow establishes the user's session. Auth cookies live on the
+Vercel domain; the ingestion worker is completely auth-agnostic.
 
 ### Railway cron (ingestion)
 
@@ -67,3 +90,71 @@ history later, add an `ingestion_runs` table in Supabase.
 docker build -t curi-ingest .
 docker run --rm --env-file .env curi-ingest
 ```
+
+### Web (Vercel) — setup playbook for Phase 3
+
+Execute these steps once `apps/web` has real routes (Phase 3.12 in the task
+plan). Writing them down now so the details don't drift.
+
+**1. Vercel project**
+- Vercel dashboard → **Add New → Project** → import `cnewkirk72/curi`
+- **Framework preset:** Next.js (auto-detected)
+- **Root directory:** `apps/web` (critical — monorepo setup; without this
+  Vercel will try to build from repo root and fail)
+- **Build command:** leave default (`next build`) — pnpm workspaces resolve
+  automatically because `pnpm-workspace.yaml` is at repo root
+- **Install command:** Vercel auto-detects pnpm from `packageManager` in
+  root `package.json`; no override needed
+- **Node version:** 20.x (matches the Railway ingestion build)
+
+**2. Environment variables** (Project Settings → Environment Variables)
+
+Set for all three envs (Production, Preview, Development):
+
+| Var | Value | Notes |
+|---|---|---|
+| `NEXT_PUBLIC_SUPABASE_URL` | same URL as Railway's `SUPABASE_URL` | Exposed to browser; safe |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase → API → `anon` key | Browser-visible; RLS gates all reads |
+
+> **Never** put `SUPABASE_SERVICE_ROLE_KEY` on Vercel. It bypasses RLS and
+> would give anyone with browser devtools full DB access. Service role stays
+> on Railway only.
+
+**3. Supabase — update Auth URL config for production**
+
+Dashboard → Authentication → URL Configuration:
+
+- **Site URL:** `https://<your-vercel-domain>` (Vercel gives you one free
+  `*.vercel.app` domain; swap to your apex once you buy one)
+- **Redirect URLs** (add all three):
+  - `https://<your-vercel-domain>/auth/callback` — production
+  - `https://*-cnewkirk72.vercel.app/auth/callback` — preview deploys
+  - `http://localhost:3000/auth/callback` — local dev
+
+**4. Google OAuth provider** (Supabase → Authentication → Providers → Google)
+
+You already have a Google Cloud project. In GCP:
+
+- **APIs & Services → Credentials → + Create credentials → OAuth client ID**
+- **Application type:** Web application
+- **Authorized redirect URIs:** add `https://<supabase-ref>.supabase.co/auth/v1/callback`
+  (Supabase shows you the exact URL on the Google provider settings page)
+
+Paste the Client ID + Client Secret back into Supabase's Google provider
+settings. Toggle "Enable Sign in with Google" on.
+
+**5. First deploy verification**
+- Trigger a Preview deploy by opening a PR, or Production by pushing to `main`
+- Visit the URL, click Sign in with Google, confirm the redirect lands back
+  on `/auth/callback` and a Supabase session is established
+- Check Supabase → Authentication → Users — your Google account should appear
+- Home feed should render events written by the Railway cron
+
+**Troubleshooting**
+- *"Invalid redirect URL" from Supabase:* the exact URL you're redirecting to
+  must be in the Redirect URLs allow-list — wildcards supported but the
+  pattern has to match
+- *Build fails with "Cannot find module @curi/..."*: root directory is probably
+  wrong. It should be `apps/web`, not the repo root
+- *OAuth succeeds but feed is empty*: RLS is probably too strict on the
+  `events` table; verify the anon role has `SELECT` policy for public events

@@ -2,29 +2,114 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Phase-1 neutral palette. Phase 3 replaces these with Curi's real tokens. */
+/* ──────────────────────────────────────────────────────────────────────
+ * Curi — Midnight + Cyan Glow design tokens.
+ *
+ * Canonical reference: design-system/MASTER.md at the repo root.
+ * HSL channels are kept in separate custom properties so Tailwind's
+ * `hsl(var(--x))` + opacity modifier pattern keeps working
+ * (e.g. `bg-accent/20`). rgba values live as full variables for the
+ * glass surfaces and glow shadows where the alpha is intentional.
+ * ────────────────────────────────────────────────────────────────────── */
 @layer base {
   :root {
-    --background: 0 0% 4%;
-    --foreground: 0 0% 96%;
-    --muted: 0 0% 10%;
-    --muted-foreground: 0 0% 65%;
-    --accent: 12 95% 58%;
-    --accent-foreground: 0 0% 98%;
-    --border: 0 0% 14%;
-    --input: 0 0% 14%;
-    --ring: 12 95% 58%;
+    /* Canvas */
+    --bg-deep: 222 31% 4%;        /* #05070D */
+    --bg-base: 224 30% 7%;        /* #0A0E1A */
+    --bg-elevated: rgba(255, 255, 255, 0.04);
+    --bg-elevated-hover: rgba(255, 255, 255, 0.07);
+
+    /* Text */
+    --fg-primary: 240 6% 93%;     /* #EDEDEF */
+    --fg-muted: 220 6% 57%;       /* #8A8F98 */
+    --fg-dim: 220 6% 38%;         /* #5A5F68 */
+
+    /* Accent — cyan glow */
+    --accent: 187 85% 53%;        /* #22D3EE */
+    --accent-hover: 187 94% 69%;  /* #67E8F9 */
+    --accent-deep: 190 93% 36%;   /* #0891B2 */
+    --accent-glow: rgba(34, 211, 238, 0.25);
+    --accent-chip-bg: rgba(34, 211, 238, 0.12);
+
+    /* Supporting chip accents */
+    --violet: 270 95% 75%;        /* #C084FC */
+    --violet-chip-bg: rgba(168, 85, 247, 0.12);
+    --pale: 199 95% 74%;          /* #7DD3FC */
+    --pale-chip-bg: rgba(125, 211, 252, 0.12);
+    --amber: 45 97% 55%;          /* #FBBF24 */
+    --amber-chip-bg: rgba(251, 191, 36, 0.12);
+
+    /* Borders */
+    --border: rgba(255, 255, 255, 0.08);
+    --border-strong: rgba(255, 255, 255, 0.14);
   }
 
+  /* Base element styling */
   * {
-    border-color: hsl(var(--border));
+    border-color: var(--border);
+  }
+
+  html {
+    color-scheme: dark;
   }
 
   html,
   body {
-    background-color: hsl(var(--background));
-    color: hsl(var(--foreground));
+    background-color: hsl(var(--bg-deep));
+    color: hsl(var(--fg-primary));
+    font-family: var(--font-sans), system-ui, -apple-system, sans-serif;
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
+  }
+
+  /* Tabular figures for all numeric UI: times, dates, prices, counters.
+   * Keeps columns aligned even as the number changes — prevents the
+   * layout shift that proportional figures cause in a live feed. */
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Focus ring — matches MASTER.md accessibility notes */
+  :focus-visible {
+    outline: 2px solid hsl(var(--accent));
+    outline-offset: 2px;
+  }
+}
+
+/* Small utility layer for patterns that are awkward to express inline
+ * with Tailwind: glass card, ambient blobs, no-scrollbar. */
+@layer components {
+  .curi-glass {
+    background-color: var(--bg-elevated);
+    border: 1px solid var(--border);
+    backdrop-filter: blur(20px) saturate(140%);
+    -webkit-backdrop-filter: blur(20px) saturate(140%);
+  }
+
+  .curi-glass:hover {
+    background-color: var(--bg-elevated-hover);
+    border-color: var(--border-strong);
+  }
+
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+}
+
+/* Respect reduced-motion preference — per MASTER.md "disable oscillation
+ * but keep the static blobs." Blob positions are retained; only the
+ * keyframe animation is suppressed. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }
