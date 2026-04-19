@@ -1,6 +1,10 @@
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Curi — Phase 1 seed: NYC electronic venues + MusicBrainz taxonomy mappings.
 -- Idempotent (on conflict do nothing) so it's safe to re-run.
+--
+-- Column naming: taxonomy_map.vibes (renamed from taxonomy_map.flavors in
+-- migration 0009 as part of Phase 4a). Seed rows below reflect the post-rename
+-- schema; they run AFTER all migrations, so the column is already `vibes`.
 -- ─────────────────────────────────────────────────────────────────────────────
 
 -- ── VENUES ────────────────────────────────────────────────────────────────────────
@@ -23,8 +27,8 @@ insert into public.venues (name, slug, neighborhood, website) values
 on conflict (slug) do nothing;
 
 -- ── TAXONOMY MAP ────────────────────────────────────────────────────────────────────────
--- Maps common MusicBrainz tags → Curi genres[] + flavors[].
-insert into public.taxonomy_map (input_tag, genres, flavors) values
+-- Maps common MusicBrainz tags → Curi genres[] + vibes[].
+insert into public.taxonomy_map (input_tag, genres, vibes) values
   -- drum & bass family
   ('liquid funk',         array['dnb'],                array['melodic','groovy']),
   ('neurofunk',           array['dnb'],                array['wubby','club-focused']),
