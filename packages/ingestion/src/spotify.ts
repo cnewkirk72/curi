@@ -5,6 +5,17 @@
 // "Development mode" 25-user cap does NOT apply to this flow. Tokens are
 // valid for ~1h; we cache in-process and refresh ~1 minute before expiry.
 //
+// Two-call flow per artist:
+//   1. GET /v1/search?q=<name>&type=artist  — find candidate by name
+//   2. GET /v1/artists/{id}                  — fetch full artist object
+//
+// Why two calls: Spotify's Search response returns a SIMPLIFIED artist
+// payload that omits `genres`, `popularity`, and `followers` entirely
+// (observed in the Phase 3.18 eval run — every successful match came back
+// pop=0, genres=(none) regardless of how famous the artist was). The
+// per-id artist endpoint returns the full object. Future optimization:
+// batch up to 50 ids via /v1/artists?ids=… during the backfill.
+//
 // Usage:
 //   import { searchArtistOnSpotify } from './spotify.js';
 //   const hit = await searchArtistOnSpotify('Honey Dijon');
@@ -231,9 +242,14 @@ export function searchArtistOnSpotify(
       return null;
     }
 
+    // Second call: /v1/artists/{id} returns the FULL artist object. The
+    // Search response's simplified payload omits genres/popularity/followers,
+    // so without this hop every match comes back pop=0, genres=(none). Worth
+    // the extra ~100ms per artist to actually get the data we're after.
+    const full = await spotifyFetch<SpotifyArtist>(`/artists/${best.id}`);
     const confidence: SpotifyMatchConfidence =
-      (best.popularity ?? 0) >= 10 ? 'high' : 'medium';
-    return toMatch(best, confidence);
+      (full.popularity ?? 0) >= 10 ? 'high' : 'medium';
+    return toMatch(full, confidence);
   });
 }
 
