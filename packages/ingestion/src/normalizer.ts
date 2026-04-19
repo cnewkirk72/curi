@@ -10,10 +10,12 @@
 //       * RawEvent.sourceGenres (RA-curated event tags)  → weight 4
 //       * headliner artist genres/flavors                 → weight 2
 //       * supporting artist genres/flavors                → weight 1
-//       * venue.default_genres/default_flavors (fallback) → weight 1, only
-//         applied when every other signal came back empty — prevents e.g.
-//         Nowadays-seeded defaults overriding a ra-nyc-tagged country set
-//         but still tags events at known-genre rooms when MB is blank.
+//       * venue.default_genres/default_flavors (fallback) → weight 1, gated
+//         *per dimension*: default_genres only apply when no higher-priority
+//         layer produced any genres, and default_flavors likewise for
+//         flavors. (Prior Phase 3.16 logic gated on any-signal-anywhere,
+//         which let a stray flavor from one layer suppress a venue's genre
+//         floor — fixed in Phase 3.17.)
 import { supabase } from './supabase.js';
 import { slugify } from './slug.js';
 import { enrichArtist as mbEnrichArtist } from './musicbrainz.js';
@@ -276,25 +278,38 @@ export async function upsertEvent(event: RawEvent): Promise<UpsertResult> {
     }),
   );
 
-  //    Layer C (fallback only): venue defaults. Applied exclusively when
-  //    every higher-priority signal came back empty — otherwise a curated
-  //    "Elsewhere defaults" would overwrite a legitimate ra-nyc tag of
-  //    "Country" on a one-off event. The fallback keeps tagging honest
-  //    at venues with a strong house identity when MB gives us nothing.
-  const haveAnyHigherSignal =
-    sourceSignals.some((s) => s.genres.length > 0 || s.flavors.length > 0) ||
-    artistSignals.some((s) => s.genres.length > 0 || s.flavors.length > 0);
-  const venueSignals: RollupSignal[] =
-    !haveAnyHigherSignal &&
-    (venueDefaults.genres.length > 0 || venueDefaults.flavors.length > 0)
-      ? [
-          {
-            genres: venueDefaults.genres,
-            flavors: venueDefaults.flavors,
-            weight: 1,
-          },
-        ]
-      : [];
+  //    Layer C (fallback only): venue defaults. Gate the fallback *per
+  //    dimension* (genre vs flavor) independently — in Phase 3.16 we gated
+  //    on "any signal anywhere", which meant a single flavor coming through
+  //    (e.g. ra-nyc's "Club" tag → club-focused flavor, no genre) would
+  //    disable the whole fallback and leave genres empty at rooms with a
+  //    clear house identity. Symptom: "Body Hack" at Nowadays landed with
+  //    flavors=[club-focused] and genres=[] because the flavor-only signal
+  //    flipped the gate even though genres were untouched. Split the two
+  //    dimensions so a venue's default_genres still fires when the higher
+  //    layers produced zero genres, regardless of what flavors did — and
+  //    vice versa.
+  const haveAnyHigherGenreSignal =
+    sourceSignals.some((s) => s.genres.length > 0) ||
+    artistSignals.some((s) => s.genres.length > 0);
+  const haveAnyHigherFlavorSignal =
+    sourceSignals.some((s) => s.flavors.length > 0) ||
+    artistSignals.some((s) => s.flavors.length > 0);
+  const venueSignals: RollupSignal[] = [];
+  if (!haveAnyHigherGenreSignal && venueDefaults.genres.length > 0) {
+    venueSignals.push({
+      genres: venueDefaults.genres,
+      flavors: [],
+      weight: 1,
+    });
+  }
+  if (!haveAnyHigherFlavorSignal && venueDefaults.flavors.length > 0) {
+    venueSignals.push({
+      genres: [],
+      flavors: venueDefaults.flavors,
+      weight: 1,
+    });
+  }
 
   const eventRollup = rollup([
     ...sourceSignals,
