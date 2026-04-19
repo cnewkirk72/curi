@@ -219,6 +219,33 @@ export type Database = {
           },
         ];
       };
+      user_prefs: {
+        Row: {
+          created_at: string;
+          digest_email: boolean;
+          preferred_flavors: string[];
+          preferred_genres: string[];
+          updated_at: string;
+          user_id: string;
+        };
+        Insert: {
+          created_at?: string;
+          digest_email?: boolean;
+          preferred_flavors?: string[];
+          preferred_genres?: string[];
+          updated_at?: string;
+          user_id: string;
+        };
+        Update: {
+          created_at?: string;
+          digest_email?: boolean;
+          preferred_flavors?: string[];
+          preferred_genres?: string[];
+          updated_at?: string;
+          user_id?: string;
+        };
+        Relationships: [];
+      };
       user_saves: {
         Row: {
           created_at: string;
