@@ -16,7 +16,7 @@ insert into public.venues (name, slug, neighborhood, website) values
   ('Good Room',                  'good-room',         'Greenpoint, Brooklyn',        'https://goodroombk.com'),
   ('Bossa Nova Civic Club',      'bossa-nova-civic-club', 'Bushwick, Brooklyn',      'https://www.bossanovacivicclub.nyc'),
   ('House of Yes',               'house-of-yes',      'Bushwick, Brooklyn',          'https://houseofyes.org'),
-  ('The Sultan Room',            'sultan-room',       'Bushwick, Brooklyn',          'https://www.thesultanroom.com'),
+  ('The Sultan Room',            'the-sultan-room',   'Bushwick, Brooklyn',          'https://www.thesultanroom.com'),
   ('3 Dollar Bill',              '3-dollar-bill',     'East Williamsburg, Brooklyn', 'https://www.3dollarbillbk.com'),
   ('TBA Brooklyn',               'tba-brooklyn',      'East Williamsburg, Brooklyn', 'https://tbabrooklyn.com'),
   ('Market Hotel',               'market-hotel',      'Bushwick, Brooklyn',          'https://markethotel.org')
