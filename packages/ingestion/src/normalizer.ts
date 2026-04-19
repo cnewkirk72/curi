@@ -187,12 +187,30 @@ export async function upsertEvent(event: RawEvent): Promise<UpsertResult> {
   }
 
   if (artistRows.length > 0) {
-    const eaPayload = artistRows.map(({ artist, isHeadliner, position }) => ({
-      event_id: eventRow.id,
-      artist_id: artist.id,
-      is_headliner: isHeadliner,
-      position,
-    }));
+    // Dedupe by artist_id. If an event lists the same artist twice (either
+    // literal duplicates or two name variants that slugify identically), two
+    // rows with the same (event_id, artist_id) in a single INSERT ... ON
+    // CONFLICT statement trigger Postgres's "cannot affect row a second time"
+    // error (error 21000). Keep the first occurrence — it preserves the
+    // headliner flag from the top-billed position.
+    const seenArtistIds = new Set<string>();
+    const eaPayload: Array<{
+      event_id: string;
+      artist_id: string;
+      is_headliner: boolean;
+      position: number;
+    }> = [];
+    for (const { artist, isHeadliner, position } of artistRows) {
+      if (seenArtistIds.has(artist.id)) continue;
+      seenArtistIds.add(artist.id);
+      eaPayload.push({
+        event_id: eventRow.id,
+        artist_id: artist.id,
+        is_headliner: isHeadliner,
+        position,
+      });
+    }
+
     const eaErr = await client
       .from('event_artists')
       .upsert(eaPayload, { onConflict: 'event_id,artist_id' });
