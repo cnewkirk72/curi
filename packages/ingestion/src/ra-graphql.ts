@@ -28,6 +28,14 @@ export interface RAArtist {
   name: string;
 }
 
+export interface RAImage {
+  id: string;
+  /** Absolute URL to the image on images.ra.co. */
+  filename: string;
+  /** 'FLYERFRONT' | 'FLYERBACK' | other. */
+  type: string;
+}
+
 export interface RAEvent {
   id: string;
   /** ISO-ish "2026-04-18T00:00:00.000" — midnight anchor, NYC wallclock. */
@@ -38,8 +46,14 @@ export interface RAEvent {
   title: string;
   /** Relative, e.g. "/events/2376282". */
   contentUrl: string;
-  /** Promo image URL (nullable — upcoming events often lack flyers). */
+  /**
+   * Legacy top-level flyer field. Empirically always null on both
+   * eventListings and event(id) queries — RA's frontend reads from
+   * `images[]` instead. We still select it in case it ever comes back.
+   */
   flyerFront: string | null;
+  /** Promo images. We prefer `type === 'FLYERFRONT'` for the card preview. */
+  images: RAImage[];
   isTicketed: boolean;
   artists: RAArtist[];
 }
@@ -84,6 +98,7 @@ query CuriVenueEvents($id: ID!, $limit: Int!) {
       title
       contentUrl
       flyerFront
+      images { id filename type }
       isTicketed
       artists { id name }
     }
@@ -114,6 +129,7 @@ query CuriAreaEvents(
         title
         contentUrl
         flyerFront
+        images { id filename type }
         isTicketed
         venue { id name contentUrl }
         artists { id name }

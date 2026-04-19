@@ -134,6 +134,16 @@ function toRawEvent(
     ? e.contentUrl
     : `https://ra.co${e.contentUrl}`;
 
+  // RA's `flyerFront` is always null on both eventListings and event(id)
+  // queries. The real image data lives in `images[]`, where the front flyer
+  // is marked type=FLYERFRONT. Fall back to the first image if no explicit
+  // FLYERFRONT (covers events that only have a back flyer tagged) and
+  // finally to flyerFront for forward compatibility.
+  const flyerFront = (e.images ?? []).find((img) => img.type === 'FLYERFRONT');
+  const fallbackImage = (e.images ?? [])[0];
+  const imageUrl =
+    flyerFront?.filename ?? fallbackImage?.filename ?? e.flyerFront ?? null;
+
   return RawEventSchema.parse({
     sourceId: e.id,
     source: SOURCE,
@@ -144,7 +154,7 @@ function toRawEvent(
     priceMin: null,
     priceMax: null,
     ticketUrl: contentUrl,
-    imageUrl: e.flyerFront ?? null,
+    imageUrl,
     description: null,
     artistNames,
     raw: {

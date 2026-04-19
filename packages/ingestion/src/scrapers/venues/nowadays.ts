@@ -14,7 +14,7 @@
 //     with no timezone suffix. For a NYC venue these are NYC wallclock — we
 //     convert through `nycWallclockToIso` to stamp the correct UTC offset
 //     (EST/EDT-aware).
-//   - `flyerFront` is null for most upcoming events; we leave imageUrl null
+//   - `flyerFront` is always null on RA's API; use `images[]` (type=FLYERFRONT)
 //     rather than guess.
 //   - RA sometimes puts a 24h range on open-to-close "Nonstop" parties
 //     (e.g. 22:00 → next-day 22:00). That's real — don't "fix" it.
@@ -81,7 +81,13 @@ function toRawEvent(e: RAEvent): RawEvent | null {
     priceMin: null,
     priceMax: null,
     ticketUrl: contentUrl,
-    imageUrl: e.flyerFront ?? null,
+    // RA's `flyerFront` is always null; real image lives in images[] with
+    // type=FLYERFRONT. Fall back to first image, then flyerFront for safety.
+    imageUrl:
+      (e.images ?? []).find((img) => img.type === 'FLYERFRONT')?.filename ??
+      (e.images ?? [])[0]?.filename ??
+      e.flyerFront ??
+      null,
     description: null,
     artistNames,
     raw: {
