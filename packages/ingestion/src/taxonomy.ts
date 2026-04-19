@@ -25,7 +25,7 @@ const CONFIDENCE_FLOOR = 0.3; // minimum Jaccard score to auto-create a subgenre
 const __filename = fileURLToPath(import.meta.url);
 const UNMAPPED_LOG = path.resolve(__filename, '../../unmapped_artists.log');
 
-// ── normalization + similarity ────────────────────────────────────────────────
+// ── normalization + similarity ─────────────────────────────────────────────
 
 const SYNONYMS: Record<string, string> = {
   '&': 'and',
@@ -54,7 +54,7 @@ function jaccard(a: string[], b: string[]): number {
   return union === 0 ? 0 : inter / union;
 }
 
-// ── table snapshots (per-run cache, loaded once per process) ─────────────────
+// ── table snapshots (per-run cache, loaded once per process) ───────────────────
 
 interface TaxMapRow {
   id: string;
@@ -108,7 +108,7 @@ export function _resetTaxonomyCache(): void {
   cache = null;
 }
 
-// ── resolution ───────────────────────────────────────────────────────────────────
+// ── resolution ────────────────────────────────────────────────────────
 
 export type TagSource =
   | 'taxonomy_map'

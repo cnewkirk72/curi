@@ -275,6 +275,8 @@ export type Database = {
       venues: {
         Row: {
           created_at: string;
+          default_flavors: string[] | null;
+          default_genres: string[] | null;
           id: string;
           lat: number | null;
           lng: number | null;
@@ -285,6 +287,8 @@ export type Database = {
         };
         Insert: {
           created_at?: string;
+          default_flavors?: string[] | null;
+          default_genres?: string[] | null;
           id?: string;
           lat?: number | null;
           lng?: number | null;
@@ -295,6 +299,8 @@ export type Database = {
         };
         Update: {
           created_at?: string;
+          default_flavors?: string[] | null;
+          default_genres?: string[] | null;
           id?: string;
           lat?: number | null;
           lng?: number | null;

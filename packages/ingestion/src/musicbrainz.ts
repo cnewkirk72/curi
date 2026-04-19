@@ -56,7 +56,7 @@ async function mbFetch<T>(path: string): Promise<T> {
   throw new Error(`musicbrainz exhausted retries on ${path}`);
 }
 
-// ── public API ─────────────────────────────────────────────────────────────────
+// ── public API ───────────────────────────────────────────────────────
 
 export interface MbArtistHit {
   id: string;
