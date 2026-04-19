@@ -60,4 +60,17 @@ export const env = {
   get spotifyClientSecret(): string {
     return optional('SPOTIFY_CLIENT_SECRET', '');
   },
+  // Phase 4 LLM-driven enrichment. All three are optional here so the
+  // ingestion package imports don't explode when they're missing —
+  // callsites (anthropic.ts / exa.ts / firecrawl.ts) throw with a
+  // descriptive error when the key is actually needed.
+  get anthropicApiKey(): string {
+    return optional('ANTHROPIC_API_KEY', '');
+  },
+  get exaApiKey(): string {
+    return optional('EXA_API_KEY', '');
+  },
+  get firecrawlApiKey(): string {
+    return optional('FIRECRAWL_API_KEY', '');
+  },
 };
