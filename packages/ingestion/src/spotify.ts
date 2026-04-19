@@ -215,9 +215,12 @@ export function searchArtistOnSpotify(
     // Exact-normalized-name candidates first. Among those, pick the highest
     // popularity — Spotify often returns multiple artists sharing a name
     // (e.g. "Jupiter") and popularity is the most reliable disambiguator.
+    // NB: coerce popularity to 0 before subtraction — Spotify has been seen
+    // to omit the field on some simplified payloads, which would make the
+    // comparator produce NaN and leave the list effectively unsorted.
     const exactMatches = items
       .filter((a) => normalizeForCompare(a.name) === normInput)
-      .sort((a, b) => b.popularity - a.popularity);
+      .sort((a, b) => (b.popularity ?? 0) - (a.popularity ?? 0));
 
     const best = exactMatches[0];
     if (!best) {
@@ -229,7 +232,7 @@ export function searchArtistOnSpotify(
     }
 
     const confidence: SpotifyMatchConfidence =
-      best.popularity >= 10 ? 'high' : 'medium';
+      (best.popularity ?? 0) >= 10 ? 'high' : 'medium';
     return toMatch(best, confidence);
   });
 }
@@ -238,11 +241,15 @@ function toMatch(
   a: SpotifyArtist,
   confidence: SpotifyMatchConfidence,
 ): SpotifyArtistMatch {
+  // Defensive defaults. Spotify's Search response has been observed to OMIT
+  // `genres` entirely on artists that have no genre tags (not return `[]`).
+  // Same for `popularity` on some simplified payloads. Normalize here so
+  // callers always get well-typed, array/number-safe fields.
   return {
     spotifyId: a.id,
     name: a.name,
-    genres: a.genres,
-    popularity: a.popularity,
+    genres: a.genres ?? [],
+    popularity: a.popularity ?? 0,
     followers: a.followers?.total ?? 0,
     imageUrl: a.images?.[0]?.url ?? null,
     spotifyUrl: a.external_urls?.spotify ?? `https://open.spotify.com/artist/${a.id}`,

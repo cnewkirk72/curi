@@ -95,6 +95,7 @@ async function main(): Promise<void> {
 
   let hits = 0;
   let misses = 0;
+  let errors = 0;
   for (const { name, expect } of FIXTURES) {
     try {
       const m = await searchArtistOnSpotify(name);
@@ -110,25 +111,32 @@ async function main(): Promise<void> {
         );
         continue;
       }
-      hits++;
-      const genres = m.genres.length > 0 ? m.genres.join(', ') : '(none)';
+      // Defensive reads so a single weird response row doesn't crash the run.
+      const genresList = m.genres ?? [];
+      const genres = genresList.length > 0 ? genresList.join(', ') : '(none)';
       console.log(
         pad(name, 22) +
           pad(m.confidence, 8) +
-          pad(m.name, 22) +
-          pad(String(m.popularity), 5) +
-          pad(m.followers.toLocaleString(), 11) +
+          pad(m.name ?? '(unnamed)', 22) +
+          pad(String(m.popularity ?? 0), 5) +
+          pad((m.followers ?? 0).toLocaleString(), 11) +
           genres,
       );
+      // Only count as a hit AFTER the print succeeds — prior version bumped
+      // hits before the print, so a throw in the format block would also bump
+      // the catch-branch miss counter, double-counting the row.
+      hits++;
     } catch (err) {
-      misses++;
+      errors++;
       const msg = err instanceof Error ? err.message : String(err);
       console.log(pad(name, 22) + pad('ERROR', 8) + msg);
     }
   }
 
   console.log('─'.repeat(100));
-  console.log(`${hits} matched · ${misses} unmatched · ${FIXTURES.length} total`);
+  console.log(
+    `${hits} matched · ${misses} no-match · ${errors} errored · ${FIXTURES.length} total`,
+  );
   console.log(
     '\nNext step: inspect rows marked (no match) or low confidence and decide\n' +
       'whether to (a) fall back to a second-pass fuzzy search, (b) route to an\n' +
