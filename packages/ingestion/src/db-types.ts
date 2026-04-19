@@ -23,7 +23,6 @@ export type Database = {
     Tables: {
       artists: {
         Row: {
-          flavors: string[];
           genres: string[];
           id: string;
           last_enriched_at: string | null;
@@ -32,9 +31,9 @@ export type Database = {
           name: string;
           slug: string;
           subgenres: string[];
+          vibes: string[];
         };
         Insert: {
-          flavors?: string[];
           genres?: string[];
           id?: string;
           last_enriched_at?: string | null;
@@ -43,9 +42,9 @@ export type Database = {
           name: string;
           slug: string;
           subgenres?: string[];
+          vibes?: string[];
         };
         Update: {
-          flavors?: string[];
           genres?: string[];
           id?: string;
           last_enriched_at?: string | null;
@@ -54,6 +53,7 @@ export type Database = {
           name?: string;
           slug?: string;
           subgenres?: string[];
+          vibes?: string[];
         };
         Relationships: [];
       };
@@ -99,7 +99,6 @@ export type Database = {
           created_at: string;
           description: string | null;
           ends_at: string | null;
-          flavors: string[];
           genres: string[];
           id: string;
           image_url: string | null;
@@ -113,13 +112,13 @@ export type Database = {
           title: string;
           updated_at: string;
           venue_id: string | null;
+          vibes: string[];
         };
         Insert: {
           city?: string;
           created_at?: string;
           description?: string | null;
           ends_at?: string | null;
-          flavors?: string[];
           genres?: string[];
           id?: string;
           image_url?: string | null;
@@ -133,13 +132,13 @@ export type Database = {
           title: string;
           updated_at?: string;
           venue_id?: string | null;
+          vibes?: string[];
         };
         Update: {
           city?: string;
           created_at?: string;
           description?: string | null;
           ends_at?: string | null;
-          flavors?: string[];
           genres?: string[];
           id?: string;
           image_url?: string | null;
@@ -153,6 +152,7 @@ export type Database = {
           title?: string;
           updated_at?: string;
           venue_id?: string | null;
+          vibes?: string[];
         };
         Relationships: [
           {
@@ -166,22 +166,22 @@ export type Database = {
       };
       taxonomy_map: {
         Row: {
-          flavors: string[];
           genres: string[];
           id: string;
           input_tag: string;
+          vibes: string[];
         };
         Insert: {
-          flavors?: string[];
           genres?: string[];
           id?: string;
           input_tag: string;
+          vibes?: string[];
         };
         Update: {
-          flavors?: string[];
           genres?: string[];
           id?: string;
           input_tag?: string;
+          vibes?: string[];
         };
         Relationships: [];
       };
@@ -189,29 +189,29 @@ export type Database = {
         Row: {
           auto_created_at: string;
           confidence: number;
-          flavors: string[];
           genres: string[];
           id: string;
           input_tag: string;
           parent_tag_id: string;
+          vibes: string[];
         };
         Insert: {
           auto_created_at?: string;
           confidence: number;
-          flavors?: string[];
           genres?: string[];
           id?: string;
           input_tag: string;
           parent_tag_id: string;
+          vibes?: string[];
         };
         Update: {
           auto_created_at?: string;
           confidence?: number;
-          flavors?: string[];
           genres?: string[];
           id?: string;
           input_tag?: string;
           parent_tag_id?: string;
+          vibes?: string[];
         };
         Relationships: [
           {
@@ -222,6 +222,33 @@ export type Database = {
             referencedColumns: ['id'];
           },
         ];
+      };
+      user_prefs: {
+        Row: {
+          created_at: string;
+          digest_email: boolean;
+          preferred_genres: string[];
+          preferred_vibes: string[];
+          updated_at: string;
+          user_id: string;
+        };
+        Insert: {
+          created_at?: string;
+          digest_email?: boolean;
+          preferred_genres?: string[];
+          preferred_vibes?: string[];
+          updated_at?: string;
+          user_id: string;
+        };
+        Update: {
+          created_at?: string;
+          digest_email?: boolean;
+          preferred_genres?: string[];
+          preferred_vibes?: string[];
+          updated_at?: string;
+          user_id?: string;
+        };
+        Relationships: [];
       };
       user_saves: {
         Row: {
@@ -252,8 +279,8 @@ export type Database = {
       venues: {
         Row: {
           created_at: string;
-          default_flavors: string[] | null;
           default_genres: string[] | null;
+          default_vibes: string[] | null;
           id: string;
           lat: number | null;
           lng: number | null;
@@ -264,8 +291,8 @@ export type Database = {
         };
         Insert: {
           created_at?: string;
-          default_flavors?: string[] | null;
           default_genres?: string[] | null;
+          default_vibes?: string[] | null;
           id?: string;
           lat?: number | null;
           lng?: number | null;
@@ -276,8 +303,8 @@ export type Database = {
         };
         Update: {
           created_at?: string;
-          default_flavors?: string[] | null;
           default_genres?: string[] | null;
+          default_vibes?: string[] | null;
           id?: string;
           lat?: number | null;
           lng?: number | null;
@@ -293,7 +320,12 @@ export type Database = {
       [_ in never]: never;
     };
     Functions: {
-      [_ in never]: never;
+      curi_slugify: {
+        Args: {
+          input: string;
+        };
+        Returns: string;
+      };
     };
     Enums: {
       [_ in never]: never;

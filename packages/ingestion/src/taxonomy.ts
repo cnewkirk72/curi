@@ -2,10 +2,10 @@
 //
 // For each raw MusicBrainz tag we resolve it to one of five outcomes:
 //
-//   1. Direct hit in taxonomy_map        → use its genres[]/flavors[]
-//   2. Direct hit in taxonomy_subgenres  → use its stored genres[]/flavors[]
+//   1. Direct hit in taxonomy_map        → use its genres[]/vibes[]
+//   2. Direct hit in taxonomy_subgenres  → use its stored genres[]/vibes[]
 //   3. Similarity match to taxonomy_map  → insert new taxonomy_subgenres row
-//      under that parent (above confidence floor), inherit parent's genres[]/flavors[]
+//      under that parent (above confidence floor), inherit parent's genres[]/vibes[]
 //   4. No close parent, tag looks genre-like → auto-create new taxonomy_map
 //      row (top-level parent) with the tag itself as the genre. Next similar
 //      tag ("cuban bolero" after "bolero") will then match as subgenre at #3.
@@ -25,7 +25,7 @@ const CONFIDENCE_FLOOR = 0.3; // minimum Jaccard score to auto-create a subgenre
 const __filename = fileURLToPath(import.meta.url);
 const UNMAPPED_LOG = path.resolve(__filename, '../../unmapped_artists.log');
 
-// ── normalization + similarity ─────────────────────────────────────────────
+// ── normalization + similarity ──────────────────────────────────────────────
 
 const SYNONYMS: Record<string, string> = {
   '&': 'and',
@@ -60,7 +60,7 @@ interface TaxMapRow {
   id: string;
   input_tag: string;
   genres: string[];
-  flavors: string[];
+  vibes: string[];
 }
 
 interface TaxSubRow {
@@ -68,7 +68,7 @@ interface TaxSubRow {
   input_tag: string;
   parent_tag_id: string;
   genres: string[];
-  flavors: string[];
+  vibes: string[];
   confidence: number;
 }
 
@@ -82,10 +82,10 @@ async function loadCache(): Promise<NonNullable<typeof cache>> {
   if (cache) return cache;
   const client = supabase();
   const [mapRes, subRes] = await Promise.all([
-    client.from('taxonomy_map').select('id, input_tag, genres, flavors'),
+    client.from('taxonomy_map').select('id, input_tag, genres, vibes'),
     client
       .from('taxonomy_subgenres')
-      .select('id, input_tag, parent_tag_id, genres, flavors, confidence'),
+      .select('id, input_tag, parent_tag_id, genres, vibes, confidence'),
   ]);
   if (mapRes.error) throw mapRes.error;
   if (subRes.error) throw subRes.error;
@@ -108,7 +108,7 @@ export function _resetTaxonomyCache(): void {
   cache = null;
 }
 
-// ── resolution ────────────────────────────────────────────────────────
+// ── resolution ─────────────────────────────────────────────────────
 
 export type TagSource =
   | 'taxonomy_map'
@@ -120,14 +120,14 @@ export interface ResolvedTag {
   inputTag: string;
   source: TagSource;
   genres: string[];
-  flavors: string[];
+  vibes: string[];
   confidence: number; // 1.0 for direct hits
   weight: number; // from MB tag count
 }
 
 export interface EnrichmentAggregate {
   genres: string[];
-  flavors: string[];
+  vibes: string[];
   subgenres: string[];
   resolved: ResolvedTag[];
 }
@@ -201,9 +201,9 @@ async function tryAutoCreateTopLevel(
     .insert({
       input_tag: rawTag,
       genres: [genreSlug],
-      flavors: [],
+      vibes: [],
     })
-    .select('id, input_tag, genres, flavors')
+    .select('id, input_tag, genres, vibes')
     .single();
 
   if (insert.error) {
@@ -211,7 +211,7 @@ async function tryAutoCreateTopLevel(
     if (insert.error.code === '23505') {
       const refetch = await supabase()
         .from('taxonomy_map')
-        .select('id, input_tag, genres, flavors')
+        .select('id, input_tag, genres, vibes')
         .eq('input_tag', rawTag)
         .single();
       if (refetch.data) {
@@ -259,10 +259,10 @@ async function tryAutoCreate(
       input_tag: rawTag,
       parent_tag_id: bestParent.id,
       genres: bestParent.genres,
-      flavors: bestParent.flavors,
+      vibes: bestParent.vibes,
       confidence,
     })
-    .select('id, input_tag, parent_tag_id, genres, flavors, confidence')
+    .select('id, input_tag, parent_tag_id, genres, vibes, confidence')
     .single();
 
   if (insert.error) {
@@ -271,7 +271,7 @@ async function tryAutoCreate(
     if (insert.error.code === '23505') {
       const refetch = await supabase()
         .from('taxonomy_subgenres')
-        .select('id, input_tag, parent_tag_id, genres, flavors, confidence')
+        .select('id, input_tag, parent_tag_id, genres, vibes, confidence')
         .eq('input_tag', rawTag)
         .single();
       if (refetch.data) {
@@ -287,7 +287,7 @@ async function tryAutoCreate(
 }
 
 /**
- * Resolve a list of MB tags to Curi genres + flavors + subgenres,
+ * Resolve a list of MB tags to Curi genres + vibes + subgenres,
  * auto-creating taxonomy_subgenres rows as needed.
  *
  * `count` is MB's tag vote count — we use it to weight the rollup so niche
@@ -300,7 +300,7 @@ export async function resolveTags(
   const resolved: ResolvedTag[] = [];
 
   const genreWeight = new Map<string, number>();
-  const flavorWeight = new Map<string, number>();
+  const vibeWeight = new Map<string, number>();
   const subgenres = new Set<string>();
 
   for (const { name, count } of rawTags) {
@@ -315,15 +315,15 @@ export async function resolveTags(
         inputTag: name,
         source: 'taxonomy_map',
         genres: directMap.genres,
-        flavors: directMap.flavors,
+        vibes: directMap.vibes,
         confidence: 1,
         weight,
       });
       for (const g of directMap.genres) {
         genreWeight.set(g, (genreWeight.get(g) ?? 0) + weight);
       }
-      for (const f of directMap.flavors) {
-        flavorWeight.set(f, (flavorWeight.get(f) ?? 0) + weight);
+      for (const v of directMap.vibes) {
+        vibeWeight.set(v, (vibeWeight.get(v) ?? 0) + weight);
       }
       continue;
     }
@@ -335,15 +335,15 @@ export async function resolveTags(
         inputTag: name,
         source: 'taxonomy_subgenre',
         genres: directSub.genres,
-        flavors: directSub.flavors,
+        vibes: directSub.vibes,
         confidence: directSub.confidence,
         weight,
       });
       for (const g of directSub.genres) {
         genreWeight.set(g, (genreWeight.get(g) ?? 0) + weight);
       }
-      for (const f of directSub.flavors) {
-        flavorWeight.set(f, (flavorWeight.get(f) ?? 0) + weight);
+      for (const v of directSub.vibes) {
+        vibeWeight.set(v, (vibeWeight.get(v) ?? 0) + weight);
       }
       subgenres.add(name);
       continue;
@@ -356,15 +356,15 @@ export async function resolveTags(
         inputTag: name,
         source: 'auto_created',
         genres: created.row.genres,
-        flavors: created.row.flavors,
+        vibes: created.row.vibes,
         confidence: created.confidence,
         weight,
       });
       for (const g of created.row.genres) {
         genreWeight.set(g, (genreWeight.get(g) ?? 0) + weight);
       }
-      for (const f of created.row.flavors) {
-        flavorWeight.set(f, (flavorWeight.get(f) ?? 0) + weight);
+      for (const v of created.row.vibes) {
+        vibeWeight.set(v, (vibeWeight.get(v) ?? 0) + weight);
       }
       subgenres.add(name);
       continue;
@@ -379,15 +379,15 @@ export async function resolveTags(
         inputTag: name,
         source: 'auto_created',
         genres: topLevel.genres,
-        flavors: topLevel.flavors,
+        vibes: topLevel.vibes,
         confidence: 1,
         weight,
       });
       for (const g of topLevel.genres) {
         genreWeight.set(g, (genreWeight.get(g) ?? 0) + weight);
       }
-      for (const f of topLevel.flavors) {
-        flavorWeight.set(f, (flavorWeight.get(f) ?? 0) + weight);
+      for (const v of topLevel.vibes) {
+        vibeWeight.set(v, (vibeWeight.get(v) ?? 0) + weight);
       }
       continue;
     }
@@ -397,7 +397,7 @@ export async function resolveTags(
       inputTag: name,
       source: 'unmapped',
       genres: [],
-      flavors: [],
+      vibes: [],
       confidence: 0,
       weight,
     });
@@ -411,7 +411,7 @@ export async function resolveTags(
 
   return {
     genres: [...genreWeight.entries()].sort(byWeightDesc).map(([g]) => g),
-    flavors: [...flavorWeight.entries()].sort(byWeightDesc).map(([f]) => f),
+    vibes: [...vibeWeight.entries()].sort(byWeightDesc).map(([v]) => v),
     subgenres: [...subgenres],
     resolved,
   };

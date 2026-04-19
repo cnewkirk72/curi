@@ -3,19 +3,19 @@
 //   - one artists row per parsed artist (upsert on slug)
 //   - one event_artists row per (event, artist) pair
 //   - optional MusicBrainz enrichment of each artist (stale → refresh)
-//   - event rollup: aggregate genre/flavor signals into events.genres/flavors
+//   - event rollup: aggregate genre/vibe signals into events.genres/vibes
 //     from three layers (weights chosen so source/venue signals survive even
 //     when every artist has zero MB coverage — the failure mode that left 82%
 //     of events untagged in Phase 3.15):
 //       * RawEvent.sourceGenres (RA-curated event tags)  → weight 4
-//       * headliner artist genres/flavors                 → weight 2
-//       * supporting artist genres/flavors                → weight 1
-//       * venue.default_genres/default_flavors (fallback) → weight 1, gated
+//       * headliner artist genres/vibes                  → weight 2
+//       * supporting artist genres/vibes                 → weight 1
+//       * venue.default_genres/default_vibes (fallback)  → weight 1, gated
 //         *per dimension*: default_genres only apply when no higher-priority
-//         layer produced any genres, and default_flavors likewise for
-//         flavors. (Prior Phase 3.16 logic gated on any-signal-anywhere,
-//         which let a stray flavor from one layer suppress a venue's genre
-//         floor — fixed in Phase 3.17.)
+//         layer produced any genres, and default_vibes likewise for vibes.
+//         (Prior Phase 3.16 logic gated on any-signal-anywhere, which let a
+//         stray vibe from one layer suppress a venue's genre floor — fixed
+//         in Phase 3.17.)
 import { supabase } from './supabase.js';
 import { slugify } from './slug.js';
 import { enrichArtist as mbEnrichArtist } from './musicbrainz.js';
@@ -26,7 +26,7 @@ import type { Database, Json } from './db-types.js';
 type ArtistRow = Database['public']['Tables']['artists']['Row'];
 type VenueDefaults = {
   genres: string[];
-  flavors: string[];
+  vibes: string[];
 };
 
 // Refresh MB enrichment for an artist every 30 days. Beyond that, tags may have
@@ -101,7 +101,7 @@ async function enrichArtistIfStale(
       musicbrainz_id: detail.id,
       mb_tags: mbTags as unknown as Json,
       genres: agg.genres,
-      flavors: agg.flavors,
+      vibes: agg.vibes,
       subgenres: agg.subgenres,
       last_enriched_at: new Date().toISOString(),
     })
@@ -114,7 +114,7 @@ async function enrichArtistIfStale(
 
 interface EventRollup {
   genres: string[];
-  flavors: string[];
+  vibes: string[];
 }
 
 /**
@@ -124,20 +124,20 @@ interface EventRollup {
  */
 interface RollupSignal {
   genres: string[];
-  flavors: string[];
+  vibes: string[];
   weight: number;
 }
 
 function rollup(signals: RollupSignal[]): EventRollup {
   const genreWeight = new Map<string, number>();
-  const flavorWeight = new Map<string, number>();
+  const vibeWeight = new Map<string, number>();
 
   for (const s of signals) {
     for (const g of s.genres) {
       genreWeight.set(g, (genreWeight.get(g) ?? 0) + s.weight);
     }
-    for (const f of s.flavors) {
-      flavorWeight.set(f, (flavorWeight.get(f) ?? 0) + s.weight);
+    for (const v of s.vibes) {
+      vibeWeight.set(v, (vibeWeight.get(v) ?? 0) + s.weight);
     }
   }
 
@@ -146,7 +146,7 @@ function rollup(signals: RollupSignal[]): EventRollup {
 
   return {
     genres: [...genreWeight.entries()].sort(byWeightDesc).map(([g]) => g),
-    flavors: [...flavorWeight.entries()].sort(byWeightDesc).map(([f]) => f),
+    vibes: [...vibeWeight.entries()].sort(byWeightDesc).map(([v]) => v),
   };
 }
 
@@ -160,15 +160,15 @@ export interface UpsertResult {
 export async function upsertEvent(event: RawEvent): Promise<UpsertResult> {
   const client = supabase();
 
-  // 1. Resolve venue_id by slug and pull default_genres/default_flavors in
+  // 1. Resolve venue_id by slug and pull default_genres/default_vibes in
   //    the same query — used later as a rollup fallback for events where
   //    every other signal came back empty.
   let venueId: string | null = null;
-  let venueDefaults: VenueDefaults = { genres: [], flavors: [] };
+  let venueDefaults: VenueDefaults = { genres: [], vibes: [] };
   if (event.venueSlug) {
     const venue = await client
       .from('venues')
-      .select('id, default_genres, default_flavors')
+      .select('id, default_genres, default_vibes')
       .eq('slug', event.venueSlug)
       .maybeSingle();
     if (venue.error) throw venue.error;
@@ -176,7 +176,7 @@ export async function upsertEvent(event: RawEvent): Promise<UpsertResult> {
     venueDefaults = {
       // Columns are nullable while backfill rolls out; tolerate null.
       genres: (venue.data as { default_genres?: string[] | null })?.default_genres ?? [],
-      flavors: (venue.data as { default_flavors?: string[] | null })?.default_flavors ?? [],
+      vibes: (venue.data as { default_vibes?: string[] | null })?.default_vibes ?? [],
     };
   }
 
@@ -255,7 +255,7 @@ export async function upsertEvent(event: RawEvent): Promise<UpsertResult> {
   //    curated per-event by a human editor, and they don't depend on MB
   //    having any tags for the billed artists at all. This is the fix for
   //    Phase 3.15's coverage gap: 410/548 MBID-matched artists had zero MB
-  //    tags, so the old artist-only rollup produced empty genres/flavors
+  //    tags, so the old artist-only rollup produced empty genres/vibes
   //    even when RA already told us "House" or "Techno" at the event level.
   const sourceSignals: RollupSignal[] = [];
   if (event.sourceGenres && event.sourceGenres.length > 0) {
@@ -264,49 +264,49 @@ export async function upsertEvent(event: RawEvent): Promise<UpsertResult> {
     );
     sourceSignals.push({
       genres: resolved.genres,
-      flavors: resolved.flavors,
+      vibes: resolved.vibes,
       weight: 4,
     });
   }
 
-  //    Layer B: per-artist genres/flavors, 2× on headliner.
+  //    Layer B: per-artist genres/vibes, 2× on headliner.
   const artistSignals: RollupSignal[] = artistRows.map(
     ({ artist, isHeadliner }) => ({
       genres: artist.genres ?? [],
-      flavors: artist.flavors ?? [],
+      vibes: artist.vibes ?? [],
       weight: isHeadliner ? 2 : 1,
     }),
   );
 
   //    Layer C (fallback only): venue defaults. Gate the fallback *per
-  //    dimension* (genre vs flavor) independently — in Phase 3.16 we gated
-  //    on "any signal anywhere", which meant a single flavor coming through
-  //    (e.g. ra-nyc's "Club" tag → club-focused flavor, no genre) would
+  //    dimension* (genre vs vibe) independently — in Phase 3.16 we gated
+  //    on "any signal anywhere", which meant a single vibe coming through
+  //    (e.g. ra-nyc's "Club" tag → club-focused vibe, no genre) would
   //    disable the whole fallback and leave genres empty at rooms with a
   //    clear house identity. Symptom: "Body Hack" at Nowadays landed with
-  //    flavors=[club-focused] and genres=[] because the flavor-only signal
+  //    vibes=[club-focused] and genres=[] because the vibe-only signal
   //    flipped the gate even though genres were untouched. Split the two
   //    dimensions so a venue's default_genres still fires when the higher
-  //    layers produced zero genres, regardless of what flavors did — and
+  //    layers produced zero genres, regardless of what vibes did — and
   //    vice versa.
   const haveAnyHigherGenreSignal =
     sourceSignals.some((s) => s.genres.length > 0) ||
     artistSignals.some((s) => s.genres.length > 0);
-  const haveAnyHigherFlavorSignal =
-    sourceSignals.some((s) => s.flavors.length > 0) ||
-    artistSignals.some((s) => s.flavors.length > 0);
+  const haveAnyHigherVibeSignal =
+    sourceSignals.some((s) => s.vibes.length > 0) ||
+    artistSignals.some((s) => s.vibes.length > 0);
   const venueSignals: RollupSignal[] = [];
   if (!haveAnyHigherGenreSignal && venueDefaults.genres.length > 0) {
     venueSignals.push({
       genres: venueDefaults.genres,
-      flavors: [],
+      vibes: [],
       weight: 1,
     });
   }
-  if (!haveAnyHigherFlavorSignal && venueDefaults.flavors.length > 0) {
+  if (!haveAnyHigherVibeSignal && venueDefaults.vibes.length > 0) {
     venueSignals.push({
       genres: [],
-      flavors: venueDefaults.flavors,
+      vibes: venueDefaults.vibes,
       weight: 1,
     });
   }
@@ -318,7 +318,7 @@ export async function upsertEvent(event: RawEvent): Promise<UpsertResult> {
   ]);
   const rollupErr = await client
     .from('events')
-    .update({ genres: eventRollup.genres, flavors: eventRollup.flavors })
+    .update({ genres: eventRollup.genres, vibes: eventRollup.vibes })
     .eq('id', eventRow.id);
   if (rollupErr.error) throw rollupErr.error;
 

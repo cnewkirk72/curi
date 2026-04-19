@@ -7,11 +7,11 @@ Playwright-driven venue scrapers + MusicBrainz enrichment. Runs on cron (Railway
 ```
 RawEvent  ──►  normalizer.upsertEvent  ──►  events (upsert on source, source_id)
                                          │
-artist parsing ──►  artists ──► MusicBrainz ──► mb_tags ──► taxonomy_map ──► artists.genres/flavors
+artist parsing ──►  artists ──► MusicBrainz ──► mb_tags ──► taxonomy_map ──► artists.genres/vibes
                                                                               │
                                                                   event rollup (headliner 2×)
                                                                               ▼
-                                                                   events.genres / events.flavors
+                                                                   events.genres / events.vibes
 ```
 
 - **Rate limits**: MusicBrainz is 1 req/sec, strict. Venues get a 1.5s polite delay.
