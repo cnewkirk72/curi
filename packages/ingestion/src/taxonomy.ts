@@ -1,12 +1,15 @@
 // Smart-genre inference.
 //
-// For each raw MusicBrainz tag we resolve it to one of three outcomes:
+// For each raw MusicBrainz tag we resolve it to one of five outcomes:
 //
 //   1. Direct hit in taxonomy_map        → use its genres[]/flavors[]
 //   2. Direct hit in taxonomy_subgenres  → use its stored genres[]/flavors[]
 //   3. Similarity match to taxonomy_map  → insert new taxonomy_subgenres row
 //      under that parent (above confidence floor), inherit parent's genres[]/flavors[]
-//   4. Below confidence floor            → append to unmapped_artists.log, skipped
+//   4. No close parent, tag looks genre-like → auto-create new taxonomy_map
+//      row (top-level parent) with the tag itself as the genre. Next similar
+//      tag ("cuban bolero" after "bolero") will then match as subgenre at #3.
+//   5. Tag is junk/metadata (blocklist)  → append to unmapped_artists.log, skipped
 //
 // Similarity = Jaccard on normalized word tokens. It's deterministic, dependency-free,
 // and surprisingly good for short genre strings like "liquid dnb" vs "liquid funk".
@@ -22,7 +25,7 @@ const CONFIDENCE_FLOOR = 0.3; // minimum Jaccard score to auto-create a subgenre
 const __filename = fileURLToPath(import.meta.url);
 const UNMAPPED_LOG = path.resolve(__filename, '../../unmapped_artists.log');
 
-// ── normalization + similarity ───────────────────────────────────────────────
+// ── normalization + similarity ────────────────────────────────────────────────
 
 const SYNONYMS: Record<string, string> = {
   '&': 'and',
@@ -105,7 +108,7 @@ export function _resetTaxonomyCache(): void {
   cache = null;
 }
 
-// ── resolution ───────────────────────────────────────────────────────────────
+// ── resolution ───────────────────────────────────────────────────────────────────
 
 export type TagSource =
   | 'taxonomy_map'
@@ -135,6 +138,97 @@ async function logUnmapped(line: string): Promise<void> {
   } catch {
     // swallow; logging is best-effort
   }
+}
+
+// MB returns a mess of metadata-style tags mixed in with real genres. Reject
+// anything that clearly isn't a music style before seeding it into the
+// taxonomy. Samples from real MB responses: "seen live", "american",
+// "british", "death by drug overdose", "personal: a favorite of mine",
+// "male", "female", years like "2019", "rip", etc.
+const JUNK_TAG_PATTERN = new RegExp(
+  [
+    '\\b(seen live|live|american|british|english|irish|german|french|japanese|canadian|australian|italian|spanish|mexican|brazilian)\\b',
+    '\\b(male|female|group|band|duo|solo|ensemble|singer|guitarist|producer|composer|rapper|drummer|vocalist|songwriter)\\b',
+    '\\b(deceased|dead|alive|rip|died|died young|born|death by|suicide|overdose)\\b',
+    '\\b(favorite|favourite|personal|mine|great|best|awesome|bad|love|hate)\\b',
+    '\\b(recorded|released|album|single|ep|lp|record)\\b',
+    '\\b(family|sibling|brother|sister|husband|wife|father|mother)\\b',
+  ].join('|'),
+  'i',
+);
+
+const YEAR_PATTERN = /^(19|20)\d{2}s?$/;
+const MAX_TAG_LEN = 60;
+const MIN_TAG_LEN = 3;
+
+function isGenreLike(rawTag: string): boolean {
+  const t = rawTag.toLowerCase().trim();
+  if (t.length < MIN_TAG_LEN || t.length > MAX_TAG_LEN) return false;
+  if (!/[a-z]/.test(t)) return false;
+  if (YEAR_PATTERN.test(t)) return false;
+  if (JUNK_TAG_PATTERN.test(t)) return false;
+  // Tokens should be mostly word-like. "1990s house" is fine; "a :) b" is not.
+  const tokens = tokenize(rawTag);
+  if (tokens.length === 0) return false;
+  return true;
+}
+
+// Convert a raw MB tag into a slug-friendly genre name to use as its mapping.
+// "Hip Hop" → "hip-hop". "Drum & Bass" → "drum-and-bass". Matches how existing
+// seeded genres are stored (lowercase, hyphen-separated).
+function tagToGenreSlug(rawTag: string): string {
+  const lower = rawTag.toLowerCase().trim();
+  const expanded = SYNONYMS[lower] ?? lower;
+  return expanded
+    .replace(/&/g, 'and')
+    .replace(/[^a-z0-9\s-]/g, '')
+    .trim()
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-');
+}
+
+async function tryAutoCreateTopLevel(
+  rawTag: string,
+): Promise<TaxMapRow | null> {
+  if (!isGenreLike(rawTag)) return null;
+
+  const c = await loadCache();
+  const genreSlug = tagToGenreSlug(rawTag);
+  if (!genreSlug) return null;
+
+  const insert = await supabase()
+    .from('taxonomy_map')
+    .insert({
+      input_tag: rawTag,
+      genres: [genreSlug],
+      flavors: [],
+    })
+    .select('id, input_tag, genres, flavors')
+    .single();
+
+  if (insert.error) {
+    // Race / prior-run conflict: refetch and use the existing row.
+    if (insert.error.code === '23505') {
+      const refetch = await supabase()
+        .from('taxonomy_map')
+        .select('id, input_tag, genres, flavors')
+        .eq('input_tag', rawTag)
+        .single();
+      if (refetch.data) {
+        c.mapByTag.set(rawTag.toLowerCase(), refetch.data);
+        c.map.push(refetch.data);
+        return refetch.data;
+      }
+    }
+    throw insert.error;
+  }
+
+  // Update the in-memory cache so subsequent resolutions in the same run can
+  // match this entry directly, AND so later similar tags ("cuban bolero" after
+  // "bolero") find it as a candidate parent in tryAutoCreate's Jaccard search.
+  c.mapByTag.set(rawTag.toLowerCase(), insert.data);
+  c.map.push(insert.data);
+  return insert.data;
 }
 
 async function tryAutoCreate(
@@ -255,7 +349,7 @@ export async function resolveTags(
       continue;
     }
 
-    // 3. similarity-match and auto-create
+    // 3. similarity-match existing taxonomy_map parent and auto-create subgenre
     const created = await tryAutoCreate(name);
     if (created) {
       resolved.push({
@@ -276,7 +370,29 @@ export async function resolveTags(
       continue;
     }
 
-    // 4. unmapped — log for human review
+    // 4. no close parent — if the tag looks genre-like, create a new top-level
+    //    taxonomy_map entry. Then the NEXT artist that has e.g. "cuban bolero"
+    //    will find "bolero" as a close Jaccard parent in step 3.
+    const topLevel = await tryAutoCreateTopLevel(name);
+    if (topLevel) {
+      resolved.push({
+        inputTag: name,
+        source: 'auto_created',
+        genres: topLevel.genres,
+        flavors: topLevel.flavors,
+        confidence: 1,
+        weight,
+      });
+      for (const g of topLevel.genres) {
+        genreWeight.set(g, (genreWeight.get(g) ?? 0) + weight);
+      }
+      for (const f of topLevel.flavors) {
+        flavorWeight.set(f, (flavorWeight.get(f) ?? 0) + weight);
+      }
+      continue;
+    }
+
+    // 5. unmapped — log for human review (junk metadata tags land here)
     resolved.push({
       inputTag: name,
       source: 'unmapped',
@@ -305,5 +421,7 @@ export async function resolveTags(
 export const __testing = {
   tokenize,
   jaccard,
+  isGenreLike,
+  tagToGenreSlug,
   CONFIDENCE_FLOOR,
 };
