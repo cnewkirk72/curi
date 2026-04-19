@@ -26,4 +26,8 @@ export const env = {
     10,
   ),
   defaultSources: optional('INGEST_DEFAULT_SOURCES', 'all'),
+  // Spotify Web API (Client Credentials). Optional — artist enrichment
+  // gracefully skips Spotify when these are empty. Both must be set together.
+  spotifyClientId: optional('SPOTIFY_CLIENT_ID', ''),
+  spotifyClientSecret: optional('SPOTIFY_CLIENT_SECRET', ''),
 };
