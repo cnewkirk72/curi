@@ -1,12 +1,19 @@
-// Profile placeholder — proper version (genre preferences, save-count,
-// notification settings) lands in Phase 3.9. This page surfaces the
-// sign-out action so Phase 3.6 is end-to-end clickable.
+// Profile — account identity, save count, sign-out.
+//
+// Genre preferences + notification settings were originally scoped
+// for this phase, but both depend on migration 0004 (user_prefs),
+// which is part of Phase 3.11. Shipping the account card + saved
+// stat now keeps the nav end-to-end clickable without blocking on
+// schema work.
 
+import Link from 'next/link';
 import { redirect } from 'next/navigation';
+import { Bookmark, ArrowUpRight } from 'lucide-react';
 import { AppHeader } from '@/components/app-header';
 import { BottomNav } from '@/components/bottom-nav';
 import { createClient } from '@/lib/supabase/server';
 import { signOut } from '@/lib/supabase/actions';
+import { getSaveCount } from '@/lib/saves';
 
 export const dynamic = 'force-dynamic';
 
@@ -18,6 +25,12 @@ export default async function ProfilePage() {
 
   // Signed-out users shouldn't see this screen at all — send them to login.
   if (!user) redirect('/login?next=/profile');
+
+  // Count is cheap (head+count only — see getSaveCount). Still worth
+  // running in the same server tick as the user fetch but it's
+  // auth-gated by RLS so it has to run *after* we know there's a
+  // session, hence sequential rather than Promise.all.
+  const saveCount = await getSaveCount();
 
   const name =
     (user.user_metadata?.full_name as string | undefined) ??
@@ -40,6 +53,7 @@ export default async function ProfilePage() {
           </h2>
         </section>
 
+        {/* ── Identity card ───────────────────────────────────────── */}
         <div className="curi-glass rounded-2xl p-5 shadow-card">
           <div className="flex items-center gap-4">
             {avatar ? (
@@ -68,9 +82,33 @@ export default async function ProfilePage() {
           </div>
         </div>
 
-        <p className="mt-6 text-xs text-fg-muted">
-          Genre preferences, save count, and notification settings arrive in
-          Phase 3.9.
+        {/* ── Stats / shortcuts ───────────────────────────────────── */}
+        <section className="mt-6">
+          <h3 className="mb-3 font-display text-2xs font-medium uppercase tracking-widest text-fg-muted">
+            Your activity
+          </h3>
+          <Link
+            href="/saved"
+            className="curi-glass group flex items-center gap-4 rounded-2xl p-4 shadow-card transition duration-micro ease-expo active:scale-[0.98]"
+          >
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-pill bg-accent-chip text-accent">
+              <Bookmark className="h-5 w-5" strokeWidth={2} />
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="font-display text-lg font-semibold text-fg-primary tabular">
+                {saveCount}
+              </div>
+              <div className="text-2xs text-fg-muted">
+                {saveCount === 1 ? 'saved event' : 'saved events'}
+              </div>
+            </div>
+            <ArrowUpRight className="h-4 w-4 shrink-0 text-fg-dim transition group-hover:text-fg-muted" />
+          </Link>
+        </section>
+
+        <p className="mt-8 text-xs text-fg-muted">
+          Genre preferences and notification settings land with the
+          user_prefs migration in Phase 3.11.
         </p>
 
         <form action={signOut} className="mt-8">

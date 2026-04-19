@@ -13,6 +13,8 @@ import { BottomNav } from '@/components/bottom-nav';
 import { EventCard } from '@/components/event-card';
 import { FilterBar } from '@/components/filter-bar';
 import { getUpcomingEvents, type FeedEvent } from '@/lib/events';
+import { getSavedEventIds } from '@/lib/saves';
+import { createClient } from '@/lib/supabase/server';
 import { nycDayKey, groupLabel } from '@/lib/format';
 import {
   hasActiveFilters,
@@ -47,7 +49,21 @@ export default async function HomePage({
   searchParams: SearchParams;
 }) {
   const filters = parseFilters(searchParamsAdapter(searchParams));
-  const events = await getUpcomingEvents({ limit: 80, filters });
+
+  // Fire the three reads in parallel — they don't depend on each
+  // other. Auth + saved-ids both fail soft for anon viewers (RLS
+  // returns [] rather than 403), so the `signedIn` check is the
+  // canonical "show saved state?" predicate.
+  const supabase = createClient();
+  const [events, savedIds, {
+    data: { user },
+  }] = await Promise.all([
+    getUpcomingEvents({ limit: 80, filters }),
+    getSavedEventIds(),
+    supabase.auth.getUser(),
+  ]);
+
+  const signedIn = !!user;
   const groups = groupByDay(events);
   const active = hasActiveFilters(filters);
 
@@ -87,7 +103,7 @@ export default async function HomePage({
         {groups.length === 0 ? (
           <EmptyState filtered={active} />
         ) : (
-          <Feed groups={groups} />
+          <Feed groups={groups} savedIds={savedIds} signedIn={signedIn} />
         )}
       </main>
 
@@ -114,7 +130,15 @@ function groupByDay(events: FeedEvent[]): DayGroup[] {
     .map(([dayKey, events]) => ({ dayKey, events }));
 }
 
-function Feed({ groups }: { groups: DayGroup[] }) {
+function Feed({
+  groups,
+  savedIds,
+  signedIn,
+}: {
+  groups: DayGroup[];
+  savedIds: Set<string>;
+  signedIn: boolean;
+}) {
   return (
     <div className="relative space-y-10">
       {groups.map(({ dayKey, events }) => (
@@ -132,7 +156,12 @@ function Feed({ groups }: { groups: DayGroup[] }) {
           </div>
           <div className="space-y-4">
             {events.map((ev) => (
-              <EventCard key={ev.id} event={ev} />
+              <EventCard
+                key={ev.id}
+                event={ev}
+                saved={savedIds.has(ev.id)}
+                signedIn={signedIn}
+              />
             ))}
           </div>
         </section>

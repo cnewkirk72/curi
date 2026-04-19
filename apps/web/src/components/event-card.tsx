@@ -12,6 +12,7 @@
 
 import Link from 'next/link';
 import { Chip, toneForGenre } from '@/components/chip';
+import { SaveButton } from '@/components/save-button';
 import { timeLabel, formatPrice } from '@/lib/format';
 import type { FeedEvent } from '@/lib/events';
 import { cn } from '@/lib/utils';
@@ -39,7 +40,19 @@ function gradientFor(genres: string[]): string {
   return DEFAULT_GRADIENT;
 }
 
-export function EventCard({ event }: { event: FeedEvent }) {
+export function EventCard({
+  event,
+  saved = false,
+  signedIn = false,
+}: {
+  event: FeedEvent;
+  /** Whether the viewer has this event in their saves. */
+  saved?: boolean;
+  /** Whether the viewer is signed in. Threaded in so the
+   *  SaveButton can route unauth taps to /login instead of
+   *  silently failing against RLS. */
+  signedIn?: boolean;
+}) {
   const price = formatPrice(event.price_min, event.price_max);
   const genres = event.genres.slice(0, 3);
   const lineup = event.lineup.slice(0, 3);
@@ -80,12 +93,23 @@ export function EventCard({ event }: { event: FeedEvent }) {
             </div>
           </div>
         )}
-        {/* Price pill — top-right, only if we have a price */}
+        {/* Price pill — now top-LEFT to make room for the bookmark. */}
         {price && (
-          <span className="absolute right-3 top-3 rounded-pill bg-bg-deep/80 px-2.5 py-1 text-2xs font-medium text-fg-primary backdrop-blur tabular">
+          <span className="absolute left-3 top-3 rounded-pill bg-bg-deep/80 px-2.5 py-1 text-2xs font-medium text-fg-primary backdrop-blur tabular">
             {price}
           </span>
         )}
+        {/* Bookmark — top-right. Click handler stops propagation so
+            tapping the bookmark doesn't navigate to the detail page. */}
+        <div className="absolute right-3 top-3">
+          <SaveButton
+            eventId={event.id}
+            initialSaved={saved}
+            signedIn={signedIn}
+            variant="hero"
+            ariaLabel={event.title}
+          />
+        </div>
       </div>
 
       {/* Body */}

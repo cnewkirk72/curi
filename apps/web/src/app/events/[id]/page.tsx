@@ -24,7 +24,10 @@ import { BottomNav } from '@/components/bottom-nav';
 import { Chip, toneForGenre } from '@/components/chip';
 import { LineupList } from '@/components/lineup-list';
 import { LocationCard } from '@/components/location-card';
+import { SaveButton } from '@/components/save-button';
 import { getEventById } from '@/lib/events';
+import { isEventSaved } from '@/lib/saves';
+import { createClient } from '@/lib/supabase/server';
 import { timeLabel, formatPrice, groupLabel, nycDayKey } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
@@ -59,6 +62,19 @@ export default async function EventDetailPage({
 }) {
   const event = await getEventById(params.id);
   if (!event) notFound();
+
+  // Fetch the viewer's session and saved-state in parallel with the
+  // event body. `isEventSaved` returns false for anon viewers (RLS),
+  // so we only need `signedIn` to decide whether the Save button
+  // should route taps to /login.
+  const supabase = createClient();
+  const [savedForViewer, {
+    data: { user },
+  }] = await Promise.all([
+    isEventSaved(params.id),
+    supabase.auth.getUser(),
+  ]);
+  const signedIn = !!user;
 
   const price = formatPrice(event.price_min, event.price_max);
   const day = groupLabel(nycDayKey(event.starts_at));
@@ -143,6 +159,21 @@ export default async function EventDetailPage({
               ))}
             </div>
           )}
+
+          {/* Save button sits in its own row below the chips so it has
+              breathing room on narrow phones. Inline variant (bordered
+              pill with label) — distinct from the tiny hero bookmark
+              on the feed card, which is tuned for thumb-tap density
+              rather than clarity. */}
+          <div className="pt-2">
+            <SaveButton
+              eventId={event.id}
+              initialSaved={savedForViewer}
+              signedIn={signedIn}
+              variant="inline"
+              ariaLabel={event.title}
+            />
+          </div>
         </section>
 
         {/* ── Lineup ────────────────────────────────────────────── */}
