@@ -36,6 +36,12 @@ export interface RAImage {
   type: string;
 }
 
+export interface RAGenre {
+  id: string;
+  /** Human-readable genre name, e.g. "House", "Techno", "Drum & Bass". */
+  name: string;
+}
+
 export interface RAEvent {
   id: string;
   /** ISO-ish "2026-04-18T00:00:00.000" — midnight anchor, NYC wallclock. */
@@ -56,6 +62,13 @@ export interface RAEvent {
   images: RAImage[];
   isTicketed: boolean;
   artists: RAArtist[];
+  /**
+   * Genres tagged on the event by RA's editorial/curation layer. High-signal
+   * ground truth for event tagging — used by the normalizer as a base layer
+   * that doesn't depend on per-artist MB coverage. Empty array when RA hasn't
+   * tagged the event yet.
+   */
+  genres: RAGenre[];
 }
 
 interface VenueEventsResponse {
@@ -101,6 +114,7 @@ query CuriVenueEvents($id: ID!, $limit: Int!) {
       images { id filename type }
       isTicketed
       artists { id name }
+      genres { id name }
     }
   }
 }
@@ -133,6 +147,7 @@ query CuriAreaEvents(
         isTicketed
         venue { id name contentUrl }
         artists { id name }
+        genres { id name }
       }
     }
   }

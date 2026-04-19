@@ -144,6 +144,14 @@ function toRawEvent(
   const imageUrl =
     flyerFront?.filename ?? fallbackImage?.filename ?? e.flyerFront ?? null;
 
+  // RA tags events with editorial genres (e.g. "House", "Techno", "Drum &
+  // Bass"). These are the most reliable base-layer signal we have because
+  // they're curated per-event at listing time — no dependency on MB coverage
+  // for any individual artist. Empty array when RA hasn't tagged yet.
+  const sourceGenres = (e.genres ?? [])
+    .map((g) => g.name?.trim())
+    .filter((n): n is string => !!n);
+
   return RawEventSchema.parse({
     sourceId: e.id,
     source: SOURCE,
@@ -157,6 +165,7 @@ function toRawEvent(
     imageUrl,
     description: null,
     artistNames,
+    sourceGenres,
     raw: {
       raEventId: e.id,
       raContentUrl: contentUrl,
@@ -164,6 +173,7 @@ function toRawEvent(
       raVenueName: e.venue.name,
       isTicketed: e.isTicketed,
       artistIds: (e.artists ?? []).map((a) => a.id),
+      raGenres: (e.genres ?? []).map((g) => ({ id: g.id, name: g.name })),
     },
   });
 }

@@ -3,8 +3,17 @@
 //   - one artists row per parsed artist (upsert on slug)
 //   - one event_artists row per (event, artist) pair
 //   - optional MusicBrainz enrichment of each artist (stale → refresh)
-//   - event rollup: aggregate artists.genres/flavors into events.genres/flavors
-//     with 2× weight on headliners
+//   - event rollup: aggregate genre/flavor signals into events.genres/flavors
+//     from three layers (weights chosen so source/venue signals survive even
+//     when every artist has zero MB coverage — the failure mode that left 82%
+//     of events untagged in Phase 3.15):
+//       * RawEvent.sourceGenres (RA-curated event tags)  → weight 4
+//       * headliner artist genres/flavors                 → weight 2
+//       * supporting artist genres/flavors                → weight 1
+//       * venue.default_genres/default_flavors (fallback) → weight 1, only
+//         applied when every other signal came back empty — prevents e.g.
+//         Nowadays-seeded defaults overriding a ra-nyc-tagged country set
+//         but still tags events at known-genre rooms when MB is blank.
 import { supabase } from './supabase.js';
 import { slugify } from './slug.js';
 import { enrichArtist as mbEnrichArtist } from './musicbrainz.js';
@@ -13,6 +22,10 @@ import type { RawEvent } from './types.js';
 import type { Database, Json } from './db-types.js';
 
 type ArtistRow = Database['public']['Tables']['artists']['Row'];
+type VenueDefaults = {
+  genres: string[];
+  flavors: string[];
+};
 
 // Refresh MB enrichment for an artist every 30 days. Beyond that, tags may have
 // drifted (new releases, editorial changes).
@@ -102,19 +115,27 @@ interface EventRollup {
   flavors: string[];
 }
 
-function rollup(
-  artists: Array<{ artist: ArtistRow; isHeadliner: boolean }>,
-): EventRollup {
+/**
+ * Generic weighted signal for the rollup. The normalizer builds one per
+ * source of truth (RA event tags, each artist, venue defaults) and hands
+ * them to rollup() as a flat list — the function itself stays dumb.
+ */
+interface RollupSignal {
+  genres: string[];
+  flavors: string[];
+  weight: number;
+}
+
+function rollup(signals: RollupSignal[]): EventRollup {
   const genreWeight = new Map<string, number>();
   const flavorWeight = new Map<string, number>();
 
-  for (const { artist, isHeadliner } of artists) {
-    const w = isHeadliner ? 2 : 1;
-    for (const g of artist.genres) {
-      genreWeight.set(g, (genreWeight.get(g) ?? 0) + w);
+  for (const s of signals) {
+    for (const g of s.genres) {
+      genreWeight.set(g, (genreWeight.get(g) ?? 0) + s.weight);
     }
-    for (const f of artist.flavors) {
-      flavorWeight.set(f, (flavorWeight.get(f) ?? 0) + w);
+    for (const f of s.flavors) {
+      flavorWeight.set(f, (flavorWeight.get(f) ?? 0) + s.weight);
     }
   }
 
@@ -137,16 +158,24 @@ export interface UpsertResult {
 export async function upsertEvent(event: RawEvent): Promise<UpsertResult> {
   const client = supabase();
 
-  // 1. Resolve venue_id by slug.
+  // 1. Resolve venue_id by slug and pull default_genres/default_flavors in
+  //    the same query — used later as a rollup fallback for events where
+  //    every other signal came back empty.
   let venueId: string | null = null;
+  let venueDefaults: VenueDefaults = { genres: [], flavors: [] };
   if (event.venueSlug) {
     const venue = await client
       .from('venues')
-      .select('id')
+      .select('id, default_genres, default_flavors')
       .eq('slug', event.venueSlug)
       .maybeSingle();
     if (venue.error) throw venue.error;
     venueId = venue.data?.id ?? null;
+    venueDefaults = {
+      // Columns are nullable while backfill rolls out; tolerate null.
+      genres: (venue.data as { default_genres?: string[] | null })?.default_genres ?? [],
+      flavors: (venue.data as { default_flavors?: string[] | null })?.default_flavors ?? [],
+    };
   }
 
   // 2. Upsert event (on source, source_id).
@@ -217,10 +246,61 @@ export async function upsertEvent(event: RawEvent): Promise<UpsertResult> {
     if (eaErr.error) throw eaErr.error;
   }
 
-  // 4. Event rollup.
-  const eventRollup = rollup(
-    artistRows.map((r) => ({ artist: r.artist, isHeadliner: r.isHeadliner })),
+  // 4. Event rollup — three-layer weighted aggregation.
+  //
+  //    Layer A: source-supplied event genres (RA's `event.genres`, resolved
+  //    through taxonomy_map + smart-add). Highest weight because these are
+  //    curated per-event by a human editor, and they don't depend on MB
+  //    having any tags for the billed artists at all. This is the fix for
+  //    Phase 3.15's coverage gap: 410/548 MBID-matched artists had zero MB
+  //    tags, so the old artist-only rollup produced empty genres/flavors
+  //    even when RA already told us "House" or "Techno" at the event level.
+  const sourceSignals: RollupSignal[] = [];
+  if (event.sourceGenres && event.sourceGenres.length > 0) {
+    const resolved = await resolveTags(
+      event.sourceGenres.map((name) => ({ name, count: 1 })),
+    );
+    sourceSignals.push({
+      genres: resolved.genres,
+      flavors: resolved.flavors,
+      weight: 4,
+    });
+  }
+
+  //    Layer B: per-artist genres/flavors, 2× on headliner.
+  const artistSignals: RollupSignal[] = artistRows.map(
+    ({ artist, isHeadliner }) => ({
+      genres: artist.genres ?? [],
+      flavors: artist.flavors ?? [],
+      weight: isHeadliner ? 2 : 1,
+    }),
   );
+
+  //    Layer C (fallback only): venue defaults. Applied exclusively when
+  //    every higher-priority signal came back empty — otherwise a curated
+  //    "Elsewhere defaults" would overwrite a legitimate ra-nyc tag of
+  //    "Country" on a one-off event. The fallback keeps tagging honest
+  //    at venues with a strong house identity when MB gives us nothing.
+  const haveAnyHigherSignal =
+    sourceSignals.some((s) => s.genres.length > 0 || s.flavors.length > 0) ||
+    artistSignals.some((s) => s.genres.length > 0 || s.flavors.length > 0);
+  const venueSignals: RollupSignal[] =
+    !haveAnyHigherSignal &&
+    (venueDefaults.genres.length > 0 || venueDefaults.flavors.length > 0)
+      ? [
+          {
+            genres: venueDefaults.genres,
+            flavors: venueDefaults.flavors,
+            weight: 1,
+          },
+        ]
+      : [];
+
+  const eventRollup = rollup([
+    ...sourceSignals,
+    ...artistSignals,
+    ...venueSignals,
+  ]);
   const rollupErr = await client
     .from('events')
     .update({ genres: eventRollup.genres, flavors: eventRollup.flavors })

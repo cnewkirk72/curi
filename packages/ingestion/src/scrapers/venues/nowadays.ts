@@ -71,6 +71,12 @@ function toRawEvent(e: RAEvent): RawEvent | null {
     ? e.contentUrl
     : `https://ra.co${e.contentUrl}`;
 
+  // RA-curated event genres. Same role as in ra-nyc — a high-precision base
+  // layer the normalizer adds into the rollup regardless of MB coverage.
+  const sourceGenres = (e.genres ?? [])
+    .map((g) => g.name?.trim())
+    .filter((n): n is string => !!n);
+
   return RawEventSchema.parse({
     sourceId: e.id,
     source: SOURCE,
@@ -90,11 +96,13 @@ function toRawEvent(e: RAEvent): RawEvent | null {
       null,
     description: null,
     artistNames,
+    sourceGenres,
     raw: {
       raEventId: e.id,
       raContentUrl: contentUrl,
       isTicketed: e.isTicketed,
       artistIds: (e.artists ?? []).map((a) => a.id),
+      raGenres: (e.genres ?? []).map((g) => ({ id: g.id, name: g.name })),
     },
   });
 }
