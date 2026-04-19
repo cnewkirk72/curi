@@ -1,19 +1,21 @@
-// Profile — account identity, save count, sign-out.
+// Profile — account identity, save count, taste preferences, sign-out.
 //
-// Genre preferences + notification settings were originally scoped
-// for this phase, but both depend on migration 0004 (user_prefs),
-// which is part of Phase 3.11. Shipping the account card + saved
-// stat now keeps the nav end-to-end clickable without blocking on
-// schema work.
+// Preferences are persisted in user_prefs (migration 0005) and
+// fetched through getUserPrefs, which falls back to DEFAULT_PREFS
+// for first-visit viewers who haven't saved anything yet. The form
+// itself is a client component so we can debounce toggles behind
+// a single explicit Save rather than firing a write per chip.
 
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { Bookmark, ArrowUpRight } from 'lucide-react';
 import { AppHeader } from '@/components/app-header';
 import { BottomNav } from '@/components/bottom-nav';
+import { PreferencesForm } from '@/components/preferences-form';
 import { createClient } from '@/lib/supabase/server';
 import { signOut } from '@/lib/supabase/actions';
 import { getSaveCount } from '@/lib/saves';
+import { getUserPrefs } from '@/lib/preferences';
 
 export const dynamic = 'force-dynamic';
 
@@ -26,11 +28,14 @@ export default async function ProfilePage() {
   // Signed-out users shouldn't see this screen at all — send them to login.
   if (!user) redirect('/login?next=/profile');
 
-  // Count is cheap (head+count only — see getSaveCount). Still worth
-  // running in the same server tick as the user fetch but it's
-  // auth-gated by RLS so it has to run *after* we know there's a
-  // session, hence sequential rather than Promise.all.
-  const saveCount = await getSaveCount();
+  // Count is cheap (head+count only — see getSaveCount) and prefs
+  // is a single row lookup. Both are auth-gated by RLS so they run
+  // *after* we know there's a session, but they're independent of
+  // each other — parallelize.
+  const [saveCount, prefs] = await Promise.all([
+    getSaveCount(),
+    getUserPrefs(),
+  ]);
 
   const name =
     (user.user_metadata?.full_name as string | undefined) ??
@@ -106,10 +111,8 @@ export default async function ProfilePage() {
           </Link>
         </section>
 
-        <p className="mt-8 text-xs text-fg-muted">
-          Genre preferences and notification settings land with the
-          user_prefs migration in Phase 3.11.
-        </p>
+        {/* ── Preferences ─────────────────────────────────────────── */}
+        <PreferencesForm initial={prefs} />
 
         <form action={signOut} className="mt-8">
           <button
