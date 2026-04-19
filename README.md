@@ -11,7 +11,8 @@ NYC electronic music events, filtered by genre and vibe. Installable PWA.
 
 ## Status
 
-Phase 1 — scaffolding in progress. See `STATUS.md` in `packages/ingestion/` for scraper run logs (created after first run).
+MVP — live. Web on Vercel, ingestion on Railway, Postgres + Auth on Supabase.
+See `STATUS.md` in `packages/ingestion/` for the latest scraper run log.
 
 ## Local dev
 
@@ -26,7 +27,8 @@ See `apps/web/README.md` and `packages/ingestion/README.md` for details.
 
 ## Deploy
 
-- **Web** — Vercel (Next.js preset). Wires up in Phase 3.
+- **Web** — Vercel (Next.js preset), region `iad1` (pinned via
+  `apps/web/vercel.json`) to co-locate with Supabase `us-east-1`.
 - **Ingestion** — Railway cron (live), driven by the root-level `Dockerfile`
   and `railway.json`. Ships only the compiled `packages/ingestion/dist/` +
   production deps. See setup below.
@@ -91,20 +93,24 @@ docker build -t curi-ingest .
 docker run --rm --env-file .env curi-ingest
 ```
 
-### Web (Vercel) — setup playbook for Phase 3
+### Web (Vercel)
 
-Execute these steps once `apps/web` has real routes (Phase 3.12 in the task
-plan). Writing them down now so the details don't drift.
+The app is live. These are the one-time setup steps; re-read if you ever
+need to re-provision the Vercel project from scratch.
 
 **1. Vercel project**
 - Vercel dashboard → **Add New → Project** → import `cnewkirk72/curi`
-- **Framework preset:** Next.js (auto-detected)
-- **Root directory:** `apps/web` (critical — monorepo setup; without this
-  Vercel will try to build from repo root and fail)
-- **Build command:** leave default (`next build`) — pnpm workspaces resolve
-  automatically because `pnpm-workspace.yaml` is at repo root
+- **Framework preset:** Next.js (auto-detected; also pinned by
+  `apps/web/vercel.json`)
+- **Root directory:** `apps/web` — critical; without it Vercel tries to
+  build from the repo root and fails with "no framework detected"
+- **Build command:** leave default (`next build`). pnpm workspaces resolve
+  automatically because `pnpm-workspace.yaml` is at the repo root and
+  Vercel detects the monorepo
 - **Install command:** Vercel auto-detects pnpm from `packageManager` in
-  root `package.json`; no override needed
+  the root `package.json`; no override needed
+- **Region:** `iad1` — pinned via `apps/web/vercel.json` so RSC and Server
+  Actions land in the same AWS region as Supabase `us-east-1`
 - **Node version:** 20.x (matches the Railway ingestion build)
 
 **2. Environment variables** (Project Settings → Environment Variables)
