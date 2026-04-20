@@ -1,52 +1,19 @@
 // Full lineup list for the event detail screen.
 //
 // Layout: headliner(s) render first with a larger cyan-glow avatar and
-// a "Headliner" tag; supporting acts follow as a denser grid. We use
-// initials rather than a real image — our `artists` table doesn't
-// store photos, and scraping them reliably per-artist is a Phase 4
-// problem, not Phase 3.
+// a "Headliner" tag; supporting acts follow as a denser 2-column grid.
+//
+// Avatar strategy: when Phase 4f enrichment has landed a Spotify image
+// for the artist we render it inside the existing circle. When it
+// hasn't (either the backfill hasn't reached this artist yet, or the
+// artist had no confident Spotify match), we fall back to deterministic
+// tinted initials. This means the screen works gracefully at every
+// stage of the rolling backfill — no broken image icons, no empty
+// circles.
 
 import { cn } from '@/lib/utils';
 import type { LineupArtist } from '@/lib/events';
-
-// First two non-whitespace graphemes from an artist name. We use
-// Array.from so non-Latin names (e.g. four-hero -> FH, or stylized
-// names with emoji or CJK chars) yield sensible initials rather than
-// split in the middle of a surrogate pair.
-function initialsFor(name: string): string {
-  const words = name.trim().split(/\s+/).filter(Boolean);
-  if (words.length === 0) return '?';
-  if (words.length === 1) {
-    return Array.from(words[0]!).slice(0, 2).join('').toUpperCase();
-  }
-  return (Array.from(words[0]!)[0]! + Array.from(words[1]!)[0]!).toUpperCase();
-}
-
-// Deterministic tint for supporting-act avatars so a lineup of 8
-// artists doesn't read as 8 identical gray circles. We rotate through
-// the four brand tones — keyed on the artist name so the same name
-// always lands on the same tint across the app.
-const AVATAR_TONES = ['cyan', 'violet', 'pale', 'amber'] as const;
-type AvatarTone = (typeof AVATAR_TONES)[number];
-
-function hashString(s: string): number {
-  let h = 0;
-  for (let i = 0; i < s.length; i++) {
-    h = (h * 31 + s.charCodeAt(i)) | 0;
-  }
-  return Math.abs(h);
-}
-
-function avatarToneFor(name: string): AvatarTone {
-  return AVATAR_TONES[hashString(name.toLowerCase()) % AVATAR_TONES.length]!;
-}
-
-const AVATAR_BG: Record<AvatarTone, string> = {
-  cyan: 'bg-accent-chip text-accent border-accent/30',
-  violet: 'bg-violet-chip text-violet border-violet/30',
-  pale: 'bg-pale-chip text-pale border-pale/30',
-  amber: 'bg-amber-chip text-amber border-amber/30',
-};
+import { initialsFor, avatarToneFor, AVATAR_BG } from '@/lib/avatars';
 
 export function LineupList({ lineup }: { lineup: LineupArtist[] }) {
   if (lineup.length === 0) return null;
@@ -65,14 +32,27 @@ export function LineupList({ lineup }: { lineup: LineupArtist[] }) {
             >
               <div
                 className={cn(
-                  'flex h-14 w-14 shrink-0 items-center justify-center rounded-full border',
+                  'flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-full border',
                   'bg-accent-chip text-accent font-display text-base font-semibold',
                   // Headliner gets the cyan outer glow to set it apart
                   // from supporting acts without needing a separate label.
                   'ring-2 ring-accent/40 shadow-glow-sm',
                 )}
               >
-                {initialsFor(artist.name)}
+                {artist.image_url ? (
+                  // Raw <img> matches the EventCard hero pattern — avoids
+                  // having to maintain a remotePatterns allowlist for
+                  // i.scdn.co (Spotify CDN).
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={artist.image_url}
+                    alt=""
+                    loading="lazy"
+                    className="h-full w-full object-cover"
+                  />
+                ) : (
+                  initialsFor(artist.name)
+                )}
               </div>
               <div className="min-w-0 flex-1">
                 <div className="truncate font-display text-base font-semibold text-fg-primary">
@@ -95,12 +75,22 @@ export function LineupList({ lineup }: { lineup: LineupArtist[] }) {
               <div key={artist.name} className="flex items-center gap-3">
                 <div
                   className={cn(
-                    'flex h-10 w-10 shrink-0 items-center justify-center rounded-full border',
+                    'flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full border',
                     'font-display text-xs font-semibold',
                     AVATAR_BG[tone],
                   )}
                 >
-                  {initialsFor(artist.name)}
+                  {artist.image_url ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={artist.image_url}
+                      alt=""
+                      loading="lazy"
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    initialsFor(artist.name)
+                  )}
                 </div>
                 <div className="min-w-0 flex-1 truncate text-sm text-fg-primary">
                   {artist.name}

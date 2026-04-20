@@ -1,20 +1,26 @@
 // The glass event card used in the home feed and (later) Saved.
 //
 // Anatomy (top → bottom):
-//   Hero      — image if available, else a genre-colored gradient backdrop
-//   Meta row  — venue name · neighborhood · time
-//   Title     — event title (display font, semibold)
-//   Lineup    — up to 3 artists, "+N more" when clipped
-//   Chips row — up to 3 genre chips
+//   Hero       — image if available, else a genre-colored gradient backdrop
+//   Meta row   — venue name · neighborhood · time
+//   Title      — event title (display font, semibold)
+//   Lineup row — 3-avatar stacked cluster + artist names, "+N more" when clipped
+//   Chips row  — up to 3 genre chips
 //
 // The card is a <Link> so the whole surface is tappable. Press feedback
 // is the standard active:scale-[0.98] from MASTER.md.
+//
+// Avatar cluster: each circle renders a Spotify image when the Phase 4f
+// enrichment has populated `artist.image_url`, else a deterministic
+// tinted-initials fallback. This degrades gracefully during the rolling
+// backfill — the card looks good whether an artist is enriched or not.
 
 import Link from 'next/link';
 import { Chip, toneForGenre } from '@/components/chip';
 import { SaveButton } from '@/components/save-button';
 import { timeLabel, formatPrice } from '@/lib/format';
 import type { FeedEvent } from '@/lib/events';
+import { initialsFor, avatarToneFor, AVATAR_BG } from '@/lib/avatars';
 import { cn } from '@/lib/utils';
 
 // Deterministic gradient picker for image-less events. Picks based on
@@ -93,7 +99,7 @@ export function EventCard({
             </div>
           </div>
         )}
-        {/* Price pill — now top-LEFT to make room for the bookmark. */}
+        {/* Price pill — top-LEFT to make room for the bookmark. */}
         {price && (
           <span className="absolute left-3 top-3 rounded-pill bg-bg-deep/80 px-2.5 py-1 text-2xs font-medium text-fg-primary backdrop-blur tabular">
             {price}
@@ -136,12 +142,49 @@ export function EventCard({
         </h3>
 
         {lineup.length > 0 && (
-          <p className="text-sm text-fg-muted">
-            {lineup.map((a) => a.name).join(' · ')}
-            {moreCount > 0 && (
-              <span className="text-fg-dim"> +{moreCount} more</span>
-            )}
-          </p>
+          <div className="flex items-center gap-2.5">
+            {/* Stacked avatar cluster — up to 3 overlapping circles.
+                The ring matches the card's base color so overlapping
+                circles read as separated disks, same trick as Apple
+                Music / Spotify artist rows. */}
+            <div className="flex shrink-0 -space-x-1.5">
+              {lineup.map((a) => {
+                const tone = avatarToneFor(a.name);
+                return (
+                  <div
+                    key={a.name}
+                    className={cn(
+                      'flex h-6 w-6 items-center justify-center overflow-hidden rounded-full border',
+                      'ring-2 ring-bg-base/90',
+                      'font-display text-[10px] font-semibold',
+                      // Only apply tinted fallback when we have no image —
+                      // otherwise the image fills the circle and the bg
+                      // class is wasted paint.
+                      !a.image_url && AVATAR_BG[tone],
+                    )}
+                  >
+                    {a.image_url ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={a.image_url}
+                        alt=""
+                        loading="lazy"
+                        className="h-full w-full object-cover"
+                      />
+                    ) : (
+                      initialsFor(a.name)
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            <p className="min-w-0 flex-1 truncate text-sm text-fg-muted">
+              {lineup.map((a) => a.name).join(' · ')}
+              {moreCount > 0 && (
+                <span className="text-fg-dim"> +{moreCount} more</span>
+              )}
+            </p>
+          </div>
         )}
 
         {genres.length > 0 && (

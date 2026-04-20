@@ -12,11 +12,20 @@ import {
 /**
  * A single lineup entry. Shared between the feed card (which truncates
  * to 3) and the detail screen (which shows the full list).
+ *
+ * `image_url`, `spotify_url`, and `spotify_popularity` come from the
+ * Phase 4f artist enrichment pass (Spotify CDN image, artist profile
+ * URL, 0–100 popularity score). They're nullable because the backfill
+ * lands row-by-row and some artists won't have a Spotify match at all —
+ * the UI falls back to initials + tinted circles in that case.
  */
 export type LineupArtist = {
   name: string;
   position: number;
   is_headliner: boolean;
+  image_url: string | null;
+  spotify_url: string | null;
+  spotify_popularity: number | null;
 };
 
 /**
@@ -95,7 +104,12 @@ type EventRow = {
     | {
         position: number;
         is_headliner: boolean;
-        artist: { name: string } | null;
+        artist: {
+          name: string;
+          spotify_image_url: string | null;
+          spotify_url: string | null;
+          spotify_popularity: number | null;
+        } | null;
       }[]
     | null;
 };
@@ -137,7 +151,12 @@ export async function getUpcomingEvents({
       event_artists (
         position,
         is_headliner,
-        artist:artists ( name )
+        artist:artists (
+          name,
+          spotify_image_url,
+          spotify_url,
+          spotify_popularity
+        )
       )
       `,
     )
@@ -198,6 +217,9 @@ export async function getUpcomingEvents({
         name: ea.artist?.name ?? '',
         position: ea.position,
         is_headliner: ea.is_headliner,
+        image_url: ea.artist?.spotify_image_url ?? null,
+        spotify_url: ea.artist?.spotify_url ?? null,
+        spotify_popularity: ea.artist?.spotify_popularity ?? null,
       }))
       .filter((a) => a.name.length > 0)
       .sort((a, b) => a.position - b.position),
@@ -235,7 +257,12 @@ type EventDetailDbRow = {
     | {
         position: number;
         is_headliner: boolean;
-        artist: { name: string } | null;
+        artist: {
+          name: string;
+          spotify_image_url: string | null;
+          spotify_url: string | null;
+          spotify_popularity: number | null;
+        } | null;
       }[]
     | null;
 };
@@ -279,7 +306,12 @@ export async function getEventById(id: string): Promise<DetailEvent | null> {
       event_artists (
         position,
         is_headliner,
-        artist:artists ( name )
+        artist:artists (
+          name,
+          spotify_image_url,
+          spotify_url,
+          spotify_popularity
+        )
       )
       `,
     )
@@ -322,6 +354,9 @@ export async function getEventById(id: string): Promise<DetailEvent | null> {
         name: ea.artist?.name ?? '',
         position: ea.position,
         is_headliner: ea.is_headliner,
+        image_url: ea.artist?.spotify_image_url ?? null,
+        spotify_url: ea.artist?.spotify_url ?? null,
+        spotify_popularity: ea.artist?.spotify_popularity ?? null,
       }))
       .filter((a) => a.name.length > 0)
       .sort((a, b) => {
