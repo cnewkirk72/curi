@@ -10,23 +10,32 @@
 //      paginated, to build co-bill and venue-defaults context maps.
 //   3. Concurrency pool (default 10 workers) runs artists in parallel.
 //   4. Per-artist pipeline:
-//        a. enrichArtistWithLLM — Sonnet 4.6 tool-use loop with
+//        a. searchArtistOnSpotify — non-blocking Spotify match. If we
+//           get a confirmed (high/medium) hit, the genre strings feed
+//           into the enrichment context as prior evidence.
+//        b. enrichArtistWithLLM — Sonnet 4.6 tool-use loop with
 //           prompt caching + stall fallback (never throws now).
-//        b. Popularity fold-in — if enrichment already fetched SC/BC
+//        c. Popularity fold-in — if enrichment already fetched SC/BC
 //           self-tags, we have followers + URL. If not, and the
 //           artist looks electronic, call discoverPopularity for a
 //           homonym-guarded SC/BC lookup.
-//        c. Per-artist DB commit:
+//        d. Per-artist DB commit:
 //             - UPDATE artists SET genres, subgenres, vibes,
 //                                 soundcloud_url, soundcloud_followers,
 //                                 bandcamp_url, bandcamp_followers,
 //                                 popularity_checked_at,
 //                                 popularity_discovery_failed_at,
+//                                 spotify_id, spotify_url,
+//                                 spotify_followers, spotify_popularity,
+//                                 spotify_image_url,
+//                                 spotify_checked_at,
+//                                 spotify_discovery_failed_at,
+//                                 enrichment_confidence,
 //                                 last_enriched_at
 //             - Pass subgenres through resolveTags to auto-create
 //               taxonomy_subgenres rows under the best-matching
 //               parent (Phase 2 Jaccard inference).
-//        d. JSON checkpoint after every artist — crash-resumable.
+//        e. JSON checkpoint after every artist — crash-resumable.
 //
 // Run location: Christian's laptop, one-shot. Re-run the script to
 // resume — unenriched-only load naturally picks up where a crash left
@@ -38,6 +47,7 @@
 //     [--limit 1637] \
 //     [--force] \
 //     [--skip-popularity] \
+//     [--skip-spotify] \
 //     [--output /tmp/curi-backfill.json]
 
 import * as fs from 'node:fs';
@@ -46,12 +56,17 @@ import {
   enrichArtistWithLLM,
   type EnrichmentContext,
   type EnrichmentResult,
+  type EnrichmentConfidence,
 } from './llm-enrichment.js';
 import { supabase } from './supabase.js';
 import {
   discoverPopularity,
   type PopularityResult,
 } from './popularity-discovery.js';
+import {
+  searchArtistOnSpotify,
+  type SpotifyArtistMatch,
+} from './spotify.js';
 import { resolveTags } from './taxonomy.js';
 
 const DEFAULT_CONCURRENCY = 10;
@@ -72,6 +87,7 @@ interface Args {
   limit: number | null;
   force: boolean;
   skipPopularity: boolean;
+  skipSpotify: boolean;
 }
 
 function parseArgs(argv: string[]): Args {
@@ -80,6 +96,7 @@ function parseArgs(argv: string[]): Args {
   let limit: number | null = null;
   let force = false;
   let skipPopularity = false;
+  let skipSpotify = false;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--concurrency') concurrency = Number(argv[++i]);
@@ -87,6 +104,7 @@ function parseArgs(argv: string[]): Args {
     else if (a === '--limit') limit = Number(argv[++i]);
     else if (a === '--force') force = true;
     else if (a === '--skip-popularity') skipPopularity = true;
+    else if (a === '--skip-spotify') skipSpotify = true;
   }
   if (!Number.isFinite(concurrency) || concurrency <= 0) {
     concurrency = DEFAULT_CONCURRENCY;
@@ -95,7 +113,7 @@ function parseArgs(argv: string[]): Args {
     const ts = new Date().toISOString().replace(/[:.]/g, '-');
     output = path.join('/tmp', `curi-backfill-${ts}.json`);
   }
-  return { concurrency, output, limit, force, skipPopularity };
+  return { concurrency, output, limit, force, skipPopularity, skipSpotify };
 }
 
 interface Artist {
@@ -212,12 +230,24 @@ function buildContext(
   eventsByArtist: Map<string, EventRow[]>,
   artistsByEvent: Map<string, string[]>,
   nameById: Map<string, string>,
+  spotifyMatch: SpotifyArtistMatch | null,
 ): EnrichmentContext {
   const context: EnrichmentContext = { eventCity: 'NYC' };
   if (artist.mb_tags && artist.mb_tags.length) {
     context.existingMbTags = artist.mb_tags
       .map((t) => t.name)
       .filter((n): n is string => !!n);
+  }
+  // Spotify genre injection — only feed the model confirmed matches
+  // (confidence !== 'low' and genres.length > 0). Low-confidence
+  // Spotify matches are fuzzy and poison the prompt with wrong-artist
+  // genres (e.g. an unrelated "Yaya" on Spotify mapping to a local DJ).
+  if (
+    spotifyMatch &&
+    spotifyMatch.confidence !== 'low' &&
+    spotifyMatch.genres.length > 0
+  ) {
+    context.spotifyGenres = spotifyMatch.genres;
   }
   const events = (eventsByArtist.get(artist.id) ?? [])
     .filter((e) => !!e && !!e.starts_at)
@@ -257,11 +287,67 @@ function hasElectronicSignal(
   if (context.venueDefaults?.vibes.some((v) => ELECTRONIC_PATTERN.test(v))) {
     return true;
   }
+  if (context.spotifyGenres?.some((g) => ELECTRONIC_PATTERN.test(g))) {
+    return true;
+  }
   if (enrichment.genres.some((g) => ELECTRONIC_PATTERN.test(g))) return true;
   if (enrichment.subgenres.some((s) => ELECTRONIC_PATTERN.test(s))) {
     return true;
   }
   return false;
+}
+
+/**
+ * Post-hoc confidence tier derivation. Combines the LLM's self-reported
+ * confidence with whatever external grounding we have for the artist
+ * (MusicBrainz tags, confirmed Spotify match). The DB stores this
+ * tier — not the LLM's raw output — so downstream readers get a single
+ * composite signal.
+ *
+ *   very-low → stall fallback fired (nothing else matters)
+ *   high     → LLM='high' AND at least one external source confirms
+ *              the artist exists (MB tags OR Spotify hit)
+ *   medium   → LLM='high' without external grounding, OR LLM='medium',
+ *              OR LLM='low' but Spotify/MB boosted it into the middle
+ *   low      → LLM='low' with no external grounding
+ */
+function deriveConfidenceTier(
+  enrichment: EnrichmentResult,
+  artist: Artist,
+  spotifyMatch: SpotifyArtistMatch | null,
+): EnrichmentConfidence {
+  if (enrichment.confidence === 'very-low') return 'very-low';
+
+  const hasMbTags = !!artist.mb_tags && artist.mb_tags.length > 0;
+  const hasSpotify =
+    !!spotifyMatch &&
+    spotifyMatch.confidence !== 'low' &&
+    (spotifyMatch.genres.length > 0 || spotifyMatch.popularity >= 10);
+  const hasExternalGrounding = hasMbTags || hasSpotify;
+
+  // Nothing submitted — treat as very-low regardless of what LLM said.
+  // (This shouldn't happen in practice — submit_enrichment is required
+  // — but belt-and-suspenders for the "LLM emits empty arrays with
+  // confidence=high" adversarial case.)
+  const totalTags =
+    enrichment.genres.length +
+    enrichment.subgenres.length +
+    enrichment.vibes.length;
+  if (totalTags === 0 && !hasExternalGrounding) return 'very-low';
+
+  switch (enrichment.confidence) {
+    case 'high':
+      return hasExternalGrounding ? 'high' : 'medium';
+    case 'medium':
+      return 'medium';
+    case 'low':
+      // Post-hoc boost: thin LLM signal but we have solid external
+      // grounding → lift to medium. Spotify alone is a strong enough
+      // signal, MB tags alone are weaker but still better than nothing.
+      return hasSpotify ? 'medium' : 'low';
+    default:
+      return 'low';
+  }
 }
 
 interface ArtistLog {
@@ -272,6 +358,8 @@ interface ArtistLog {
   elapsedMs: number;
   enrichment?: EnrichmentResult;
   popularity?: PopularityResult | null;
+  spotify?: SpotifyArtistMatch | null;
+  tier?: EnrichmentConfidence;
   stalled?: boolean;
   error?: string;
 }
@@ -280,6 +368,9 @@ async function commitArtist(
   artist: Artist,
   enrichment: EnrichmentResult,
   popularity: PopularityResult | null,
+  spotifyMatch: SpotifyArtistMatch | null,
+  spotifyAttempted: boolean,
+  tier: EnrichmentConfidence,
 ): Promise<void> {
   const client = supabase();
   const now = new Date().toISOString();
@@ -288,6 +379,7 @@ async function commitArtist(
     genres: enrichment.genres,
     subgenres: enrichment.subgenres,
     vibes: enrichment.vibes,
+    enrichment_confidence: tier,
     last_enriched_at: now,
   };
 
@@ -322,6 +414,38 @@ async function commitArtist(
     }
   }
 
+  // Spotify persistence — same "only overwrite with real values"
+  // pattern. If the match is null (no candidate OR low-confidence
+  // fuzzy) but we DID attempt, record the timestamp so we don't
+  // re-query forever.
+  if (spotifyAttempted) {
+    if (spotifyMatch && spotifyMatch.confidence !== 'low') {
+      updatePayload.spotify_id = spotifyMatch.spotifyId;
+      updatePayload.spotify_url = spotifyMatch.spotifyUrl;
+      if (
+        typeof spotifyMatch.followers === 'number' &&
+        Number.isFinite(spotifyMatch.followers)
+      ) {
+        updatePayload.spotify_followers = spotifyMatch.followers;
+      }
+      if (
+        typeof spotifyMatch.popularity === 'number' &&
+        Number.isFinite(spotifyMatch.popularity)
+      ) {
+        updatePayload.spotify_popularity = spotifyMatch.popularity;
+      }
+      if (spotifyMatch.imageUrl) {
+        updatePayload.spotify_image_url = spotifyMatch.imageUrl;
+      }
+      updatePayload.spotify_checked_at = now;
+    } else {
+      // Attempted but no confirmed match — mark as failed so the
+      // monthly refresh cron (Phase 4f.5, deferred) can skip or
+      // revisit based on age.
+      updatePayload.spotify_discovery_failed_at = now;
+    }
+  }
+
   const { error } = await client
     .from('artists')
     .update(updatePayload)
@@ -343,23 +467,53 @@ async function commitArtist(
   }
 }
 
+/**
+ * Non-blocking Spotify lookup. Network/auth errors return null rather
+ * than bubbling — Spotify being down should not block the entire
+ * backfill. Returns both the match (if any) and whether we actually
+ * attempted, so the commit layer can distinguish "null because skipped"
+ * from "null because no match" (the latter sets
+ * spotify_discovery_failed_at, the former doesn't).
+ */
+async function safeSpotifyLookup(
+  name: string,
+  skip: boolean,
+): Promise<{ match: SpotifyArtistMatch | null; attempted: boolean }> {
+  if (skip) return { match: null, attempted: false };
+  try {
+    const match = await searchArtistOnSpotify(name);
+    return { match, attempted: true };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`  spotify lookup failed for ${name}: ${msg}`);
+    return { match: null, attempted: true };
+  }
+}
+
 async function processArtist(
   artist: Artist,
   eventsByArtist: Map<string, EventRow[]>,
   artistsByEvent: Map<string, string[]>,
   nameById: Map<string, string>,
   skipPopularity: boolean,
+  skipSpotify: boolean,
 ): Promise<ArtistLog> {
   const startedAt = new Date().toISOString();
   const start = Date.now();
-  const context = buildContext(
-    artist,
-    eventsByArtist,
-    artistsByEvent,
-    nameById,
-  );
 
   try {
+    // Spotify first — cheap, fast, gives the LLM prior evidence.
+    const { match: spotifyMatch, attempted: spotifyAttempted } =
+      await safeSpotifyLookup(artist.name, skipSpotify);
+
+    const context = buildContext(
+      artist,
+      eventsByArtist,
+      artistsByEvent,
+      nameById,
+      spotifyMatch,
+    );
+
     const enrichment = await enrichArtistWithLLM(artist.name, context);
     let popularity: PopularityResult | null = null;
 
@@ -376,7 +530,16 @@ async function processArtist(
       }
     }
 
-    await commitArtist(artist, enrichment, popularity);
+    const tier = deriveConfidenceTier(enrichment, artist, spotifyMatch);
+
+    await commitArtist(
+      artist,
+      enrichment,
+      popularity,
+      spotifyMatch,
+      spotifyAttempted,
+      tier,
+    );
 
     const elapsedMs = Date.now() - start;
     return {
@@ -387,6 +550,8 @@ async function processArtist(
       elapsedMs,
       enrichment,
       popularity,
+      spotify: spotifyMatch,
+      tier,
       stalled: enrichment.stalled,
     };
   } catch (err) {
@@ -426,7 +591,7 @@ async function main(): Promise<void> {
   );
 
   console.log(
-    `\nStarting backfill: concurrency=${args.concurrency}, skipPopularity=${args.skipPopularity}`,
+    `\nStarting backfill: concurrency=${args.concurrency}, skipPopularity=${args.skipPopularity}, skipSpotify=${args.skipSpotify}`,
   );
   console.log(`Output: ${args.output}\n`);
 
@@ -453,12 +618,16 @@ async function main(): Promise<void> {
         artistsByEvent,
         nameById,
         args.skipPopularity,
+        args.skipSpotify,
       );
       log.push(result);
       done += 1;
       const tag = result.error ? 'ERR' : result.stalled ? 'STALL' : 'OK';
-      const conf = result.enrichment?.confidence ?? '—';
+      const tier = result.tier ?? '—';
       const trace = result.enrichment?.toolTrace.join('→') ?? '';
+      const sp = result.spotify
+        ? ` sp=${result.spotify.confidence}:${result.spotify.popularity}/${result.spotify.followers}`
+        : '';
       const pop =
         result.popularity?.attempted
           ? ` sc=${result.popularity.soundcloudFollowers ?? '—'}/${
@@ -471,7 +640,7 @@ async function main(): Promise<void> {
       console.log(
         `[${String(done).padStart(4, '0')}/${total}] w${workerId} ${tag} ` +
           `${result.name} · ${(result.elapsedMs / 1000).toFixed(1)}s · ` +
-          `conf=${conf}${pop} · ${trace}${errSuffix}`,
+          `tier=${tier}${sp}${pop} · ${trace}${errSuffix}`,
       );
 
       // Checkpoint after every artist — crash-resumable.
@@ -522,12 +691,33 @@ async function main(): Promise<void> {
     `Popularity: ${popAnyUrl}/${popAttempted} with URL, ${popAnyFollowers}/${popAttempted} with follower count`,
   );
 
-  const conf = { high: 0, medium: 0, low: 0 };
+  const spAttempted = log.filter((r) => r.spotify !== undefined).length;
+  const spHighMed = log.filter(
+    (r) => r.spotify && r.spotify.confidence !== 'low',
+  ).length;
+  const spWithGenres = log.filter(
+    (r) =>
+      r.spotify &&
+      r.spotify.confidence !== 'low' &&
+      r.spotify.genres.length > 0,
+  ).length;
+  console.log(
+    `Spotify: ${spHighMed}/${spAttempted} confirmed matches, ${spWithGenres} with genres`,
+  );
+
+  // Raw LLM confidence — what the model self-reported (pre post-hoc).
+  const llmConf = { high: 0, medium: 0, low: 0, 'very-low': 0 };
+  // Derived tier — what actually got written to the DB.
+  const dbTier = { high: 0, medium: 0, low: 0, 'very-low': 0 };
   for (const r of log) {
-    if (r.enrichment) conf[r.enrichment.confidence] += 1;
+    if (r.enrichment) llmConf[r.enrichment.confidence] += 1;
+    if (r.tier) dbTier[r.tier] += 1;
   }
   console.log(
-    `Confidence: high=${conf.high}, medium=${conf.medium}, low=${conf.low}`,
+    `LLM confidence: high=${llmConf.high}, medium=${llmConf.medium}, low=${llmConf.low}, very-low=${llmConf['very-low']}`,
+  );
+  console.log(
+    `DB tier:        high=${dbTier.high}, medium=${dbTier.medium}, low=${dbTier.low}, very-low=${dbTier['very-low']}`,
   );
 
   const tierDist = { training: 0, search: 0, firecrawl: 0, error: 0 };
@@ -550,8 +740,11 @@ async function main(): Promise<void> {
     const reasons: string[] = [];
     if (r.stalled) reasons.push('stalled');
     if (r.error) reasons.push(`error: ${r.error}`);
-    if (r.enrichment?.confidence === 'low' && !r.stalled) {
-      reasons.push('confidence=low');
+    if (r.tier === 'very-low' && !r.stalled) {
+      reasons.push('tier=very-low (no grounding + no tags)');
+    }
+    if (r.tier === 'low' && !r.stalled) {
+      reasons.push('tier=low');
     }
     if (r.enrichment?.fuzzyMerges.length) {
       reasons.push(`${r.enrichment.fuzzyMerges.length} fuzzy merge(s)`);
