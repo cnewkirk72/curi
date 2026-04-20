@@ -19,10 +19,18 @@
 //   - Prompt caching (system + tools) via runToolLoop.enablePromptCache.
 //   - Stall fallback: when the 6-iteration cap is hit without a submit,
 //     we force submit_enrichment via tool_choice and flag the result
-//     with stalled=true rather than throwing.
+//     with stalled=true rather than throwing. Stalled submissions emit
+//     confidence='very-low' regardless of what the model claimed — so
+//     the DB can distinguish a genuine low-confidence call from a
+//     burned iter cap.
 //   - Popularity fold-in: if the model calls fetch_artist_self_tags,
 //     we capture follower count + canonical URL as a side effect so
 //     the orchestrator doesn't need a dedicated second Firecrawl call.
+//   - Spotify fact injection: when the caller has a Spotify match for
+//     the artist, the genre strings land in the user message as prior
+//     evidence. The model uses them to anchor taxonomy mapping rather
+//     than guessing blind on MB-matched artists — directly addresses
+//     the 42% empty-arrays failure mode from the 4e dry run.
 //
 // Post-processing: the model's output is normalized through the same
 // fuzzy-taxonomy matcher from Phase 4a (canonical form + Levenshtein
@@ -50,6 +58,12 @@ export interface EnrichmentContext {
   coBilledArtists?: string[];
   /** Any existing MusicBrainz tag hints from prior enrichment. */
   existingMbTags?: string[];
+  /** Spotify genre strings when the orchestrator already resolved a
+   *  confirmed Spotify match for this artist (confidence high/medium).
+   *  Injected into the user prompt as prior evidence so the model can
+   *  anchor its taxonomy mapping rather than guessing blind. These are
+   *  NOT auto-persisted — they're just context. */
+  spotifyGenres?: string[];
   /** Event city (default NYC). This is where the *show* is, not where
    *  the artist lives — Curi is NYC-only so this is effectively constant. */
   eventCity?: string;
@@ -57,19 +71,31 @@ export interface EnrichmentContext {
   eventDate?: string;
 }
 
+/**
+ * Confidence tier emitted by the enrichment pipeline.
+ *
+ *   high     — model is confident in the specific tags it chose
+ *   medium   — model picked between close alternatives, best guess
+ *   low      — signal was thin, submitted a minimal best-effort array
+ *   very-low — stall fallback fired (iter cap burned without submit).
+ *              Reserved for this case — the model itself never emits
+ *              'very-low' through the tool.
+ */
+export type EnrichmentConfidence = 'high' | 'medium' | 'low' | 'very-low';
+
 export interface EnrichmentResult {
   genres: string[];
   subgenres: string[];
   vibes: string[];
-  confidence: 'high' | 'medium' | 'low';
+  confidence: EnrichmentConfidence;
   sources: string[];
   reasoning: string;
   /** Which tools the model invoked, in order (debug signal). */
   toolTrace: string[];
   /** Tags silently merged via tier-2 fuzzy match (for post-run review). */
   fuzzyMerges: Array<{ proposed: string; merged: string; distance: number }>;
-  /** True when the iter-cap stall fallback fired — caller should treat
-   *  this result with skepticism even if confidence > low. */
+  /** True when the iter-cap stall fallback fired. When true, confidence
+   *  is forced to 'very-low' regardless of what the model claimed. */
   stalled: boolean;
   /** Popularity captured opportunistically from fetch_artist_self_tags
    *  calls. Null when the model never escalated to Firecrawl — in that
@@ -161,11 +187,21 @@ function buildSystemPrompt(vocab: Vocabulary): string {
     '',
     `Vibes (${vocab.vibes.length}): ${vocab.vibes.join(', ') || '(none seeded yet)'}`,
     '',
+    '# External grounding signals',
+    '',
+    'The user message may include **prior evidence** from external sources: MusicBrainz tag hints, Spotify genres, venue defaults, co-billed artists. These are strong priors — they confirm the artist is a real, classifiable act with an identifiable sound. Use them as your **anchor** for taxonomic mapping:',
+    '',
+    '- If MusicBrainz tags say "techno, minimal", that is direct evidence the artist is a techno act — map those tags to our vocabulary and submit, don\'t guess blind.',
+    '- If Spotify genres say "deep house, nu disco, disco house", translate those into our taxonomy (parent "house", subgenres "deep-house", "nu-disco", "disco-house" if novel). Spotify\'s genre strings generally map 1:1 or close — trust them more than you\'d trust a web search excerpt.',
+    '- If venue defaults say "techno, bass music" and the co-billed artists are known techno producers, the act in front of you is almost certainly in that orbit.',
+    '',
+    'When these signals are present, **empty arrays are almost always wrong**. A grounded artist with external tags deserves at least a best-effort classification with the tags you do have — submit confidence="low" with what the external signals imply, not empty arrays.',
+    '',
     '# Tools and escalation order',
     '',
-    '1. **First: use your training knowledge.** For well-documented artists you already know, call `submit_enrichment` directly. Roughly 60% of queries land here.',
-    '2. **If training is thin, call `search_web`** for recent bio/press/RA context. Roughly 25% of queries need this.',
-    "3. **If web search is also thin AND the context is electronic-leaning** (venue defaults or existing tags imply electronic/DJ music), call `find_artist_profile` then `fetch_artist_self_tags`. This is for underground NYC producers whose genres aren't captured by traditional sources. Roughly 15% of queries.",
+    '1. **First: use your training knowledge + any external signals in the user message.** For well-documented artists or artists with strong external grounding (MB tags, Spotify genres), call `submit_enrichment` directly. Roughly 60–70% of queries should land here — especially ones with Spotify genres attached.',
+    '2. **If training is thin and external signals are ambiguous, call `search_web`** for recent bio/press/RA context. Roughly 20% of queries need this.',
+    "3. **If web search is also thin AND the context is electronic-leaning** (venue defaults or existing tags imply electronic/DJ music), call `find_artist_profile` then `fetch_artist_self_tags`. This is for underground NYC producers whose genres aren't captured by traditional sources. Roughly 10–15% of queries.",
     '',
     '    **Platform choice:** Default to `platform: "soundcloud"` — that is where DJs and club-oriented producers live, which covers most of Curi\'s catalog. Try `platform: "bandcamp"` only when SoundCloud returns no useful candidates AND the context looks album/label/experimental-oriented (experimental, ambient, noise, non-dance electronic, label roster signals, Pan/Hyperdub/Posh Isolation-adjacent acts). Do not call both platforms by default — the latency compounds on underground artists who are already slow to resolve.',
     '',
@@ -177,7 +213,8 @@ function buildSystemPrompt(vocab: Vocabulary): string {
     '',
     'These are failure modes from prior runs — do not repeat them.',
     '',
-    '- **Do not draw tags from the vocabulary list unless they are directly supported.** The vocabulary is for recognition, not selection. If "classic rock" is in the list but the artist is a Chicago house DJ, do NOT include "classic rock". Every tag you return must be grounded in specific evidence (training knowledge of this artist, or tool-result content).',
+    '- **Do not return empty arrays when external grounding exists.** If the user message includes MusicBrainz tags, Spotify genres, or venue defaults pointing toward a known music style, those are strong priors that the artist has a classifiable sound. Use those tags to anchor your mapping rather than submitting empty arrays with low confidence. An empty output on a grounded artist is a failure — prefer a low-confidence best-effort submission that translates the external tags into our vocabulary.',
+    '- **Do not draw tags from the vocabulary list unless they are directly supported.** The vocabulary is for recognition, not selection. If "classic rock" is in the list but the artist is a Chicago house DJ, do NOT include "classic rock". Every tag you return must be grounded in specific evidence (training knowledge of this artist, external signals in the user message, or tool-result content).',
     '- **Do not pad arrays with generic placeholders** like "club", "electronic-dance", or "dance music" when a more specific subgenre applies. If the artist plays Jersey club, return "jersey-club"; if they play deep house, return "deep-house" under the "house" parent. Bare "club" and "electronic-dance" are almost always wrong on this platform.',
     '- **Do not conflate genres and subgenres.** A parent bucket like "house" belongs in `genres`, never in `subgenres`. A specific style like "deep-house" belongs in `subgenres`, never in `genres`.',
     '- **Confidence reflects precision, not coverage.** "high" means you are confident in the specific tags you chose. If you had to guess between two close subgenres, use "medium". If signal is thin, use "low" and submit a minimal best-effort array — do not pad with guesses to make the result look more complete. Fewer, more-accurate tags beat more, shakier ones.',
@@ -199,6 +236,23 @@ function buildUserMessage(name: string, context: EnrichmentContext): string {
     `Artist name: ${name}`,
   ];
 
+  // Spotify genres go near the top — highest-quality grounding signal
+  // when present, and we want the model to see it before it starts
+  // reading venue defaults and co-bills.
+  if (context.spotifyGenres && context.spotifyGenres.length) {
+    lines.push('');
+    lines.push(
+      `Spotify genres (confirmed Spotify match for this artist — strong grounding signal): ${context.spotifyGenres.join(', ')}`,
+    );
+  }
+
+  if (context.existingMbTags && context.existingMbTags.length) {
+    lines.push('');
+    lines.push(
+      `Existing MusicBrainz tag hints (from prior enrichment — strong grounding signal): ${context.existingMbTags.join(', ')}`,
+    );
+  }
+
   if (
     context.venueDefaults &&
     (context.venueDefaults.genres.length || context.venueDefaults.vibes.length)
@@ -219,13 +273,6 @@ function buildUserMessage(name: string, context: EnrichmentContext): string {
     lines.push('');
     lines.push(
       `Co-billed artists (context clues): ${context.coBilledArtists.join(', ')}`,
-    );
-  }
-
-  if (context.existingMbTags && context.existingMbTags.length) {
-    lines.push('');
-    lines.push(
-      `Existing MusicBrainz tag hints: ${context.existingMbTags.join(', ')}`,
     );
   }
 
@@ -360,8 +407,8 @@ interface SubmittedEnrichment {
  *
  * Phase 4f: fold popularity capture into the result when the model
  * called fetch_artist_self_tags, and use the runToolLoop stall
- * fallback so burning the iter cap flags the result instead of
- * crashing the whole run.
+ * fallback so burning the iter cap flags the result as 'very-low'
+ * instead of crashing the whole run.
  */
 export async function enrichArtistWithLLM(
   name: string,
@@ -462,7 +509,7 @@ export async function enrichArtistWithLLM(
     enablePromptCache: true,
     // On iter-cap exhaustion, force submit rather than throwing. The
     // orchestrator inspects the stalled flag and treats results as
-    // low-confidence regardless of what the model claimed.
+    // 'very-low' confidence regardless of what the model claimed.
     stallFallbackTool: 'submit_enrichment',
   });
 
@@ -481,10 +528,12 @@ export async function enrichArtistWithLLM(
     genres: dedupeClean(s.genres),
     subgenres: mergeFuzzy(s.subgenres, vocab.subgenres, fuzzyMerges),
     vibes: mergeFuzzy(s.vibes, vocab.vibes, fuzzyMerges),
-    // If stalled, downgrade confidence to low regardless of what the
-    // model claimed — stalled submissions ran out of iterations and
-    // couldn't complete their intended discovery path.
-    confidence: stalled ? 'low' : normalizeConfidence(s.confidence),
+    // If stalled, force confidence to 'very-low' regardless of what
+    // the model claimed — stalled submissions ran out of iterations
+    // and couldn't complete their intended discovery path. 'very-low'
+    // is distinct from 'low' so the DB can separate "genuinely thin
+    // signal" from "burned iter cap without finishing".
+    confidence: stalled ? 'very-low' : normalizeConfidence(s.confidence),
     sources: Array.isArray(s.sources)
       ? (s.sources as unknown[]).filter((x): x is string => typeof x === 'string')
       : [],
@@ -512,8 +561,10 @@ function dedupeClean(arr: unknown): string[] {
   return out;
 }
 
-function normalizeConfidence(c: unknown): 'high' | 'medium' | 'low' {
-  if (c === 'high' || c === 'medium' || c === 'low') return c;
+function normalizeConfidence(c: unknown): EnrichmentConfidence {
+  if (c === 'high' || c === 'medium' || c === 'low' || c === 'very-low') {
+    return c;
+  }
   return 'low';
 }
 
