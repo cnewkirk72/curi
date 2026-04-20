@@ -8,9 +8,10 @@
   },
   "scripts": {
     "ingest": "tsx src/cli.ts",
+    "enrich": "tsx src/llm-enrichment-run.ts",
     "start": "node dist/cli.js",
     "build": "tsc -p tsconfig.json",
-    "lint": "echo 'no-op — add eslint in phase 2'",
+    "lint": "echo 'no-op \u2014 add eslint in phase 2'",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "tsx --test src/**/*.test.ts"
   },
