@@ -66,7 +66,7 @@ async function firecrawlFetch<T>(path: string, body: unknown): Promise<T> {
   throw new Error(`firecrawl exhausted retries on ${path}: ${lastErr}`);
 }
 
-// ── public API ──────────────────────────────────────────────────────
+// ── public API ──────────────────────────────────────────────
 
 export interface SelfTagsResult {
   /** Genre-style hashtags aggregated across recent tracks, ranked by frequency. */
@@ -236,7 +236,7 @@ function parseFirecrawlNumberString(raw: string): number | null {
   const s = raw.trim().toLowerCase().replace(/,/g, '');
   const m = s.match(/^([\d.]+)\s*([km])?$/);
   if (!m) return null;
-  const n = parseFloat(m[1]);
+  const n = parseFloat(m[1]!);
   if (!Number.isFinite(n)) return null;
   const mult = m[2] === 'k' ? 1000 : m[2] === 'm' ? 1_000_000 : 1;
   return Math.round(n * mult);

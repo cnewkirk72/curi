@@ -47,9 +47,9 @@ function normalize(str: string): string {
 
 function extractSlug(url: string): string | null {
   let m = url.match(/soundcloud\.com\/([^/?#]+)/i);
-  if (m) return normalize(m[1]);
+  if (m) return normalize(m[1]!);
   m = url.match(/https?:\/\/([^.]+)\.bandcamp\.com/i);
-  if (m) return normalize(m[1]);
+  if (m) return normalize(m[1]!);
   return null;
 }
 

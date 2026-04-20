@@ -59,6 +59,7 @@ function parseArgs(argv: string[]): Args {
   let limit: number | null = null;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
+    if (a === undefined) continue;
     if (a.startsWith('--category=')) category = a.split('=')[1] ?? null;
     else if (a === '--category') category = argv[++i] ?? null;
     else if (a === '--apply') apply = true;
@@ -85,7 +86,7 @@ function parseArgs(argv: string[]): Args {
       console.error(`No audit report found in ${dir}. Run pnpm audit first.`);
       process.exit(1);
     }
-    report = path.join(dir, files[0]);
+    report = path.join(dir, files[0]!);
   }
   return {
     category: category as CategoryName,
@@ -154,7 +155,7 @@ async function backupEvent(
   if (ins.error) throw ins.error;
 }
 
-// ── Handlers ───────────────────────────────────────────────────
+// ── Handlers ───────────────────────────────────
 
 async function applyDeleteArtists(
   rows: Array<{ id: string; name: string }>,

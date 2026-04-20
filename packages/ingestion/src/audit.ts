@@ -67,6 +67,7 @@ function parseArgs(argv: string[]): Args {
   let verbose = false;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
+    if (a === undefined) continue;
     if (a === '--output') output = path.resolve(argv[++i] ?? output);
     else if (a === '--verbose') verbose = true;
   }
@@ -270,6 +271,7 @@ async function main(): Promise<void> {
       return x.a.id.localeCompare(y.a.id);
     });
     const [win, ...lose] = withCounts;
+    if (!win) continue;
     collisionClusters.push({
       key: k,
       winner: { id: win.a.id, name: win.a.name, slug: win.a.slug, event_count: win.ec },
@@ -295,7 +297,8 @@ async function main(): Promise<void> {
     // enforced here — human reviews the cluster before apply.
     group.sort((a, b) => a.starts_at.localeCompare(b.starts_at) || a.id.localeCompare(b.id));
     const [win, ...lose] = group;
-    const [venueId, day, fingerprint] = k.split('|');
+    if (!win) continue;
+    const [venueId, day, fingerprint] = k.split('|') as [string, string, string];
     dupEventClusters.push({
       venue_id: venueId === 'nullvenue' ? null : venueId,
       day,
@@ -305,7 +308,7 @@ async function main(): Promise<void> {
     });
   }
 
-  // ── Build report ────────────────────────────────────────────────
+  // ── Build report ───────────────────────────────────
   const generatedAt = new Date().toISOString();
   const totalLinks = [...eventCounts.values()].reduce((a, b) => a + b, 0);
   const report = {
@@ -342,9 +345,9 @@ async function main(): Promise<void> {
   fs.mkdirSync(path.dirname(args.output), { recursive: true });
   fs.writeFileSync(args.output, JSON.stringify(report, null, 2));
 
-  console.log('\n═════════════════════════════════════════════════════');
+  console.log('\n════════════════════════════════════════════════════');
   console.log('Audit report summary');
-  console.log('═════════════════════════════════════════════════════');
+  console.log('════════════════════════════════════════════════════');
   for (const [cat, meta] of Object.entries(report.summary)) {
     const m = meta as { count?: number; clusters?: number; rows_affected?: number; action: string };
     const countStr = typeof m.count === 'number'
