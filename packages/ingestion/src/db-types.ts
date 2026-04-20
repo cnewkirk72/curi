@@ -25,6 +25,7 @@ export type Database = {
         Row: {
           bandcamp_followers: number | null;
           bandcamp_url: string | null;
+          enrichment_confidence: string | null;
           genres: string[];
           id: string;
           last_enriched_at: string | null;
@@ -36,12 +37,20 @@ export type Database = {
           slug: string;
           soundcloud_followers: number | null;
           soundcloud_url: string | null;
+          spotify_checked_at: string | null;
+          spotify_discovery_failed_at: string | null;
+          spotify_followers: number | null;
+          spotify_id: string | null;
+          spotify_image_url: string | null;
+          spotify_popularity: number | null;
+          spotify_url: string | null;
           subgenres: string[];
           vibes: string[];
         };
         Insert: {
           bandcamp_followers?: number | null;
           bandcamp_url?: string | null;
+          enrichment_confidence?: string | null;
           genres?: string[];
           id?: string;
           last_enriched_at?: string | null;
@@ -53,12 +62,20 @@ export type Database = {
           slug: string;
           soundcloud_followers?: number | null;
           soundcloud_url?: string | null;
+          spotify_checked_at?: string | null;
+          spotify_discovery_failed_at?: string | null;
+          spotify_followers?: number | null;
+          spotify_id?: string | null;
+          spotify_image_url?: string | null;
+          spotify_popularity?: number | null;
+          spotify_url?: string | null;
           subgenres?: string[];
           vibes?: string[];
         };
         Update: {
           bandcamp_followers?: number | null;
           bandcamp_url?: string | null;
+          enrichment_confidence?: string | null;
           genres?: string[];
           id?: string;
           last_enriched_at?: string | null;
@@ -70,8 +87,45 @@ export type Database = {
           slug?: string;
           soundcloud_followers?: number | null;
           soundcloud_url?: string | null;
+          spotify_checked_at?: string | null;
+          spotify_discovery_failed_at?: string | null;
+          spotify_followers?: number | null;
+          spotify_id?: string | null;
+          spotify_image_url?: string | null;
+          spotify_popularity?: number | null;
+          spotify_url?: string | null;
           subgenres?: string[];
           vibes?: string[];
+        };
+        Relationships: [];
+      };
+      artists_audit_backup: {
+        Row: {
+          action: string;
+          applied_at: string;
+          category: string;
+          id: number;
+          notes: string | null;
+          original_id: string;
+          original_row: Json;
+        };
+        Insert: {
+          action: string;
+          applied_at?: string;
+          category: string;
+          id?: number;
+          notes?: string | null;
+          original_id: string;
+          original_row: Json;
+        };
+        Update: {
+          action?: string;
+          applied_at?: string;
+          category?: string;
+          id?: number;
+          notes?: string | null;
+          original_id?: string;
+          original_row?: Json;
         };
         Relationships: [];
       };
@@ -181,6 +235,36 @@ export type Database = {
             referencedColumns: ['id'];
           },
         ];
+      };
+      events_audit_backup: {
+        Row: {
+          action: string;
+          applied_at: string;
+          category: string;
+          id: number;
+          notes: string | null;
+          original_id: string;
+          original_row: Json;
+        };
+        Insert: {
+          action: string;
+          applied_at?: string;
+          category: string;
+          id?: number;
+          notes?: string | null;
+          original_id: string;
+          original_row: Json;
+        };
+        Update: {
+          action?: string;
+          applied_at?: string;
+          category?: string;
+          id?: number;
+          notes?: string | null;
+          original_id?: string;
+          original_row?: Json;
+        };
+        Relationships: [];
       };
       taxonomy_map: {
         Row: {
