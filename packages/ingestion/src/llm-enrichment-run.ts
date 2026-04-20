@@ -2,8 +2,8 @@
 // Phase 4c pipeline before the eval harness (Phase 4d).
 //
 // Usage:
-//   pnpm --filter @curi/ingestion exec tsx src/llm-enrichment-run.ts \
-//     --name "Object Blue" [--venue-slug basement-ny] [--co-billed "a,b,c"]
+//   pnpm --filter @curi/ingestion enrich --name "Object Blue" \
+//     [--venue-slug basement-ny] [--co-billed "a,b,c"]
 //
 // Prints the structured enrichment result as JSON — includes toolTrace
 // so you can see which escalation path fired and fuzzyMerges so you can
@@ -49,7 +49,7 @@ function parseArgs(argv: string[]): Args {
 async function main(): Promise<void> {
   const { name, venueSlug, coBilled } = parseArgs(process.argv.slice(2));
 
-  const context: EnrichmentContext = { city: 'NYC' };
+  const context: EnrichmentContext = { eventCity: 'NYC' };
 
   if (venueSlug) {
     const client = supabase();

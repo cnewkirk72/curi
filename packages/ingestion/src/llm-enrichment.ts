@@ -40,8 +40,9 @@ export interface EnrichmentContext {
   coBilledArtists?: string[];
   /** Any existing MusicBrainz tag hints from prior enrichment. */
   existingMbTags?: string[];
-  /** City (default NYC). */
-  city?: string;
+  /** Event city (default NYC). This is where the *show* is, not where
+   *  the artist lives — Curi is NYC-only so this is effectively constant. */
+  eventCity?: string;
   /** Event date (ISO string). */
   eventDate?: string;
 }
@@ -148,6 +149,8 @@ function buildSystemPrompt(vocab: Vocabulary): string {
     '2. **If training is thin, call `search_web`** for recent bio/press/RA context. Roughly 25% of queries need this.',
     "3. **If web search is also thin AND the context is electronic-leaning** (venue defaults or existing tags imply electronic/DJ music), call `find_artist_profile` then `fetch_artist_self_tags`. This is for underground NYC producers whose genres aren't captured by traditional sources. Roughly 15% of queries.",
     '',
+    '    **Platform choice:** Default to `platform: "soundcloud"` — that is where DJs and club-oriented producers live, which covers most of Curi\'s catalog. Try `platform: "bandcamp"` only when SoundCloud returns no useful candidates AND the context looks album/label/experimental-oriented (experimental, ambient, noise, non-dance electronic, label roster signals, Pan/Hyperdub/Posh Isolation-adjacent acts). Do not call both platforms by default — the latency compounds on underground artists who are already slow to resolve.',
+    '',
     'Do NOT call `fetch_artist_self_tags` on rock/jazz/folk/hip-hop acts — those have limited SoundCloud/Bandcamp presence and the call wastes credits.',
     '',
     "When you have a confident answer, call `submit_enrichment`. Always call it exactly once per artist — even if confidence is low, submit with `\"confidence\": \"low\"` and best-effort arrays rather than refusing.",
@@ -160,7 +163,7 @@ function buildSystemPrompt(vocab: Vocabulary): string {
     '- **Do not pad arrays with generic placeholders** like "club", "electronic-dance", or "dance music" when a more specific subgenre applies. If the artist plays Jersey club, return "jersey-club"; if they play deep house, return "deep-house" under the "house" parent. Bare "club" and "electronic-dance" are almost always wrong on this platform.',
     '- **Do not conflate genres and subgenres.** A parent bucket like "house" belongs in `genres`, never in `subgenres`. A specific style like "deep-house" belongs in `subgenres`, never in `genres`.',
     '- **Confidence reflects precision, not coverage.** "high" means you are confident in the specific tags you chose. If you had to guess between two close subgenres, use "medium". If signal is thin, use "low" and submit a minimal best-effort array — do not pad with guesses to make the result look more complete. Fewer, more-accurate tags beat more, shakier ones.',
-    '- **If Exa returns no profile candidates for an artist with a distinctive handle** (unusual spelling, numbers, underscores), you may call `fetch_artist_self_tags` directly with a guessed URL like `https://soundcloud.com/{slug}` — Firecrawl 404s on bad guesses are harmless, so this is worth trying once before giving up.',
+    '- **If Exa returns no profile candidates for an artist with a distinctive handle** (unusual spelling, numbers, underscores), you may call `fetch_artist_self_tags` directly with a guessed URL — Firecrawl 404s on bad guesses are harmless, so this is worth trying once before giving up. SoundCloud URL pattern: `https://soundcloud.com/{slug}`. Bandcamp URL pattern: `https://{slug}.bandcamp.com` (subdomain, not a path segment).',
     '',
     '# Output standards',
     '',
@@ -208,9 +211,11 @@ function buildUserMessage(name: string, context: EnrichmentContext): string {
     );
   }
 
-  if (context.city) {
+  if (context.eventCity) {
     lines.push('');
-    lines.push(`City: ${context.city}`);
+    lines.push(
+      `Event city: ${context.eventCity} (where the show is — not necessarily where the artist lives)`,
+    );
   }
   if (context.eventDate) {
     lines.push(`Event date: ${context.eventDate}`);
@@ -241,7 +246,7 @@ const TOOLS: ToolDefinition[] = [
   {
     name: 'find_artist_profile',
     description:
-      "Search SoundCloud or Bandcamp for an artist's profile URL. Returns up to 3 candidate URLs with title + snippet so you can disambiguate common names — cross-check each candidate against the event context (bio/city/genre hints) before handing a URL to fetch_artist_self_tags. If no candidates come back for a distinctively-named underground artist, you may call fetch_artist_self_tags directly with a guessed URL (e.g. https://soundcloud.com/{slug}) — Firecrawl 404s on bad guesses are harmless.",
+      "Search SoundCloud or Bandcamp for an artist's profile URL. Returns up to 3 candidate URLs with title + snippet so you can disambiguate common names — cross-check each candidate against the event context (bio/city/genre hints) before handing a URL to fetch_artist_self_tags. Default to platform='soundcloud'; use platform='bandcamp' as a secondary escalation for album/label/experimental-oriented artists when SoundCloud comes up empty. If no candidates come back for a distinctively-named artist, you may call fetch_artist_self_tags directly with a guessed URL — Firecrawl 404s are harmless. Pattern: https://soundcloud.com/{slug} or https://{slug}.bandcamp.com.",
     input_schema: {
       type: 'object',
       properties: {
