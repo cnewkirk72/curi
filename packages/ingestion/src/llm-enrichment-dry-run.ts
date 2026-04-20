@@ -30,6 +30,7 @@ import * as path from 'node:path';
 import {
   enrichArtistWithLLM,
   type EnrichmentContext,
+  type EnrichmentConfidence,
   type EnrichmentResult,
 } from './llm-enrichment.js';
 import { supabase } from './supabase.js';
@@ -51,6 +52,7 @@ function parseArgs(argv: string[]): Args {
   let output = '';
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
+    if (a === undefined) continue;
     if (a === '--size') size = Number(argv[++i]);
     else if (a === '--extra') {
       const raw = argv[++i] ?? '';
@@ -141,7 +143,12 @@ function shuffle<T>(arr: T[]): T[] {
   const out = [...arr];
   for (let i = out.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
-    [out[i], out[j]] = [out[j], out[i]];
+    // Destructure swap tickles noUncheckedIndexedAccess since out[i]/out[j]
+    // are typed as T | undefined. Use a tmp var and non-null-assert — we
+    // know the indices are in range (i bounded by loop, j bounded by i+1).
+    const tmp = out[i] as T;
+    out[i] = out[j] as T;
+    out[j] = tmp;
   }
   return out;
 }
@@ -244,8 +251,10 @@ async function main(): Promise<void> {
   const extraSelected: Artist[] = [];
   for (const pool of [tier1Pool, tier2Pool, tier3Pool]) {
     for (let i = pool.length - 1; i >= 0; i--) {
-      if (extrasLower.has(pool[i].name.toLowerCase())) {
-        extraSelected.push(pool[i]);
+      const candidate = pool[i];
+      if (!candidate) continue;
+      if (extrasLower.has(candidate.name.toLowerCase())) {
+        extraSelected.push(candidate);
         pool.splice(i, 1);
       }
     }
@@ -297,7 +306,9 @@ async function main(): Promise<void> {
   const log: PerArtistLog[] = [];
 
   for (let i = 0; i < sampled.length; i++) {
-    const { artist, expectedTier } = sampled[i];
+    const entry = sampled[i];
+    if (!entry) continue;
+    const { artist, expectedTier } = entry;
 
     // Build context from most recent event.
     const events = (eventsByArtist.get(artist.id) ?? [])
@@ -381,7 +392,14 @@ async function main(): Promise<void> {
     '3-firecrawl': 0,
     error: 0,
   };
-  const confDist = { high: 0, medium: 0, low: 0 };
+  // confDist carries all four EnrichmentConfidence values post-4f.8
+  // (added 'very-low' for the stall fallback tier).
+  const confDist: Record<EnrichmentConfidence, number> = {
+    high: 0,
+    medium: 0,
+    low: 0,
+    'very-low': 0,
+  };
   let totalElapsed = 0;
   let successCount = 0;
   const allFuzzy: Array<{
@@ -410,7 +428,7 @@ async function main(): Promise<void> {
     `Tier distribution: training=${tierDist['1-training']}, search=${tierDist['2-search']}, firecrawl=${tierDist['3-firecrawl']}, error=${tierDist.error}`,
   );
   console.log(
-    `Confidence: high=${confDist.high}, medium=${confDist.medium}, low=${confDist.low}`,
+    `Confidence: high=${confDist.high}, medium=${confDist.medium}, low=${confDist.low}, very-low=${confDist['very-low']}`,
   );
 
   if (allFuzzy.length) {
@@ -426,6 +444,7 @@ async function main(): Promise<void> {
   for (const row of log) {
     const reasons: string[] = [];
     if (row.result?.confidence === 'low') reasons.push('confidence=low');
+    if (row.result?.confidence === 'very-low') reasons.push('confidence=very-low (stall fallback)');
     if (row.result?.fuzzyMerges.length) reasons.push(`${row.result.fuzzyMerges.length} fuzzy merge(s)`);
     if (row.result) {
       const exp = row.expectedTier;

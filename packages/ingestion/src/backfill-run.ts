@@ -52,6 +52,7 @@
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import type { Database } from './db-types.js';
 import {
   enrichArtistWithLLM,
   type EnrichmentContext,
@@ -68,6 +69,8 @@ import {
   type SpotifyArtistMatch,
 } from './spotify.js';
 import { resolveTags } from './taxonomy.js';
+
+type ArtistUpdate = Database['public']['Tables']['artists']['Update'];
 
 const DEFAULT_CONCURRENCY = 10;
 const PAGE_SIZE = 1000;
@@ -99,6 +102,7 @@ function parseArgs(argv: string[]): Args {
   let skipSpotify = false;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
+    if (a === undefined) continue;
     if (a === '--concurrency') concurrency = Number(argv[++i]);
     else if (a === '--output') output = argv[++i] ?? '';
     else if (a === '--limit') limit = Number(argv[++i]);
@@ -375,7 +379,10 @@ async function commitArtist(
   const client = supabase();
   const now = new Date().toISOString();
 
-  const updatePayload: Record<string, unknown> = {
+  // Typed against the regenerated db-types so the new spotify_* and
+  // enrichment_confidence columns are checked at compile time rather
+  // than relying on Record<string, unknown> escape hatch.
+  const updatePayload: ArtistUpdate = {
     genres: enrichment.genres,
     subgenres: enrichment.subgenres,
     vibes: enrichment.vibes,
@@ -612,6 +619,9 @@ async function main(): Promise<void> {
       const idx = cursor++;
       if (idx >= artists.length) break;
       const artist = artists[idx];
+      // Defensive null guard — idx < artists.length implies artist
+      // exists, but noUncheckedIndexedAccess makes TS require the check.
+      if (!artist) break;
       const result = await processArtist(
         artist,
         eventsByArtist,
