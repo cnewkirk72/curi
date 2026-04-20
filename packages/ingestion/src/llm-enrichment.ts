@@ -1,4 +1,4 @@
-// LLM-driven artist enrichment (Phase 4c).
+// LLM-driven artist enrichment (Phase 4c + 4f).
 //
 // Given an artist name + event context, ask Sonnet 4.6 to produce a
 // structured genre/subgenre/vibe tag set. The model uses three tools
@@ -15,6 +15,15 @@
 //                                  result. The loop exits when the
 //                                  model stops (end_turn) after this.
 //
+// Phase 4f additions:
+//   - Prompt caching (system + tools) via runToolLoop.enablePromptCache.
+//   - Stall fallback: when the 6-iteration cap is hit without a submit,
+//     we force submit_enrichment via tool_choice and flag the result
+//     with stalled=true rather than throwing.
+//   - Popularity fold-in: if the model calls fetch_artist_self_tags,
+//     we capture follower count + canonical URL as a side effect so
+//     the orchestrator doesn't need a dedicated second Firecrawl call.
+//
 // Post-processing: the model's output is normalized through the same
 // fuzzy-taxonomy matcher from Phase 4a (canonical form + Levenshtein
 // near-match), so spelling drift ("hardtranse") silently merges into
@@ -30,6 +39,7 @@ import {
 import { searchExa, findProfileUrls, type ExaResult } from './exa.js';
 import { fetchArtistSelfTags } from './firecrawl.js';
 import { findNearMatch, normalizeForTaxonomy } from './taxonomy-fuzzy.js';
+import type { PopularityResult } from './popularity-discovery.js';
 
 // ── Public types ────────────────────────────────────────────────────
 
@@ -58,6 +68,13 @@ export interface EnrichmentResult {
   toolTrace: string[];
   /** Tags silently merged via tier-2 fuzzy match (for post-run review). */
   fuzzyMerges: Array<{ proposed: string; merged: string; distance: number }>;
+  /** True when the iter-cap stall fallback fired — caller should treat
+   *  this result with skepticism even if confidence > low. */
+  stalled: boolean;
+  /** Popularity captured opportunistically from fetch_artist_self_tags
+   *  calls. Null when the model never escalated to Firecrawl — in that
+   *  case the orchestrator does a dedicated discoverPopularity pass. */
+  popularity: PopularityResult | null;
 }
 
 // ── Vocabulary loader ─────────────────────────────────────────────────
@@ -73,8 +90,9 @@ let vocabCache: Vocabulary | null = null;
 /**
  * Load the current taxonomy vocabulary from Supabase. Cached per
  * process because it's used to seed the system prompt for every
- * enrichment call. Cache invalidates on process restart — acceptable
- * since a full backfill runs in one process.
+ * enrichment call — and the system prompt is marked cacheable, so
+ * any change to vocab busts the Anthropic ephemeral cache too. Cache
+ * invalidates on process restart.
  */
 export async function loadVocabulary(): Promise<Vocabulary> {
   if (vocabCache) return vocabCache;
@@ -337,8 +355,13 @@ interface SubmittedEnrichment {
  * Run the enrichment pipeline for one artist. Result has been post-
  * processed through the Phase 4a fuzzy matcher so near-duplicates
  * collapse into the existing vocabulary. Genuinely novel tags pass
- * through unchanged — the persistence layer (Phase 4e integration)
- * creates the new taxonomy_subgenres / vibe rows.
+ * through unchanged — the persistence layer creates the new
+ * taxonomy_subgenres / vibe rows.
+ *
+ * Phase 4f: fold popularity capture into the result when the model
+ * called fetch_artist_self_tags, and use the runToolLoop stall
+ * fallback so burning the iter cap flags the result instead of
+ * crashing the whole run.
  */
 export async function enrichArtistWithLLM(
   name: string,
@@ -348,6 +371,26 @@ export async function enrichArtistWithLLM(
 
   let submitted: SubmittedEnrichment | null = null;
   const toolTrace: string[] = [];
+  let popularity: PopularityResult | null = null;
+
+  const recordPopularity = (url: string, followers: number | null, canonical: string | null): void => {
+    const resolvedUrl = canonical ?? url;
+    if (!popularity) {
+      popularity = { attempted: true, sources: [] };
+    }
+    popularity.sources.push(resolvedUrl);
+    if (/soundcloud\.com/i.test(resolvedUrl)) {
+      popularity.soundcloudUrl = resolvedUrl;
+      if (followers !== null && followers !== undefined) {
+        popularity.soundcloudFollowers = followers;
+      }
+    } else if (/bandcamp\.com/i.test(resolvedUrl)) {
+      popularity.bandcampUrl = resolvedUrl;
+      if (followers !== null && followers !== undefined) {
+        popularity.bandcampFollowers = followers;
+      }
+    }
+  };
 
   const executeToolCall = async (call: ToolInvocation): Promise<string> => {
     toolTrace.push(call.name);
@@ -385,13 +428,17 @@ export async function enrichArtistWithLLM(
         const limit =
           typeof call.input.limit === 'number' ? call.input.limit : 10;
         const result = await fetchArtistSelfTags(profileUrl, limit);
+        // Capture popularity as a side effect — tier-3 artists get
+        // their SC/BC URL + follower count "for free" from this call.
+        recordPopularity(profileUrl, result.followers, result.canonicalUrl);
         return [
           `profile_genre: ${result.profileGenre ?? '(none)'}`,
           `bio: ${result.bio ?? '(none)'}`,
           `top_tags (most frequent first): ${
             result.tags.slice(0, 20).join(', ') || '(none)'
           }`,
-          `source: ${result.sourceUrl}`,
+          `followers: ${result.followers ?? '(not visible)'}`,
+          `source: ${result.canonicalUrl ?? result.sourceUrl}`,
         ].join('\n');
       }
       case 'submit_enrichment': {
@@ -403,11 +450,20 @@ export async function enrichArtistWithLLM(
     }
   };
 
-  const { stopReason } = await runToolLoop({
+  const { stopReason, stalled } = await runToolLoop({
     system: buildSystemPrompt(vocab),
     userMessage: buildUserMessage(name, context),
     tools: TOOLS,
     executeToolCall,
+    // System prompt embeds the full vocabulary (~2k subgenres worth of
+    // tokens) and the tool definitions are ~1k tokens — both are
+    // stable across every artist in a run, so cache hits save ~90% on
+    // input tokens after the first call.
+    enablePromptCache: true,
+    // On iter-cap exhaustion, force submit rather than throwing. The
+    // orchestrator inspects the stalled flag and treats results as
+    // low-confidence regardless of what the model claimed.
+    stallFallbackTool: 'submit_enrichment',
   });
 
   if (!submitted) {
@@ -425,13 +481,18 @@ export async function enrichArtistWithLLM(
     genres: dedupeClean(s.genres),
     subgenres: mergeFuzzy(s.subgenres, vocab.subgenres, fuzzyMerges),
     vibes: mergeFuzzy(s.vibes, vocab.vibes, fuzzyMerges),
-    confidence: normalizeConfidence(s.confidence),
+    // If stalled, downgrade confidence to low regardless of what the
+    // model claimed — stalled submissions ran out of iterations and
+    // couldn't complete their intended discovery path.
+    confidence: stalled ? 'low' : normalizeConfidence(s.confidence),
     sources: Array.isArray(s.sources)
       ? (s.sources as unknown[]).filter((x): x is string => typeof x === 'string')
       : [],
     reasoning: typeof s.reasoning === 'string' ? s.reasoning : '',
     toolTrace,
     fuzzyMerges,
+    stalled,
+    popularity,
   };
 }
 

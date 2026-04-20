@@ -10,6 +10,7 @@
     "ingest": "tsx src/cli.ts",
     "enrich": "tsx src/llm-enrichment-run.ts",
     "dry-run": "tsx src/llm-enrichment-dry-run.ts",
+    "backfill": "tsx src/backfill-run.ts",
     "start": "node dist/cli.js",
     "build": "tsc -p tsconfig.json",
     "lint": "echo 'no-op \u2014 add eslint in phase 2'",

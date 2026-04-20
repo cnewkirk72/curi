@@ -23,35 +23,53 @@ export type Database = {
     Tables: {
       artists: {
         Row: {
+          bandcamp_followers: number | null;
+          bandcamp_url: string | null;
           genres: string[];
           id: string;
           last_enriched_at: string | null;
           mb_tags: Json | null;
           musicbrainz_id: string | null;
           name: string;
+          popularity_checked_at: string | null;
+          popularity_discovery_failed_at: string | null;
           slug: string;
+          soundcloud_followers: number | null;
+          soundcloud_url: string | null;
           subgenres: string[];
           vibes: string[];
         };
         Insert: {
+          bandcamp_followers?: number | null;
+          bandcamp_url?: string | null;
           genres?: string[];
           id?: string;
           last_enriched_at?: string | null;
           mb_tags?: Json | null;
           musicbrainz_id?: string | null;
           name: string;
+          popularity_checked_at?: string | null;
+          popularity_discovery_failed_at?: string | null;
           slug: string;
+          soundcloud_followers?: number | null;
+          soundcloud_url?: string | null;
           subgenres?: string[];
           vibes?: string[];
         };
         Update: {
+          bandcamp_followers?: number | null;
+          bandcamp_url?: string | null;
           genres?: string[];
           id?: string;
           last_enriched_at?: string | null;
           mb_tags?: Json | null;
           musicbrainz_id?: string | null;
           name?: string;
+          popularity_checked_at?: string | null;
+          popularity_discovery_failed_at?: string | null;
           slug?: string;
+          soundcloud_followers?: number | null;
+          soundcloud_url?: string | null;
           subgenres?: string[];
           vibes?: string[];
         };

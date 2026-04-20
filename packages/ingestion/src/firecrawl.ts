@@ -5,7 +5,8 @@
 // Firecrawl's /v1/scrape with `extract` format does the heavy lifting
 // server-side: we give it a prompt + JSON schema, it scrapes the
 // page and runs its own LLM pass to pull structured data. One call
-// yields profile-level genre, bio, and aggregated per-track tags.
+// yields profile-level genre, bio, aggregated per-track tags, AND
+// follower count + canonical URL for popularity capture (Phase 4f).
 //
 // We prefer this over rolling our own HTML parse because SoundCloud's
 // markup shifts and parsing it ourselves (Playwright + selectors) is
@@ -74,6 +75,15 @@ export interface SelfTagsResult {
   bio: string | null;
   /** The profile-level genre field (SoundCloud exposes this), or null. */
   profileGenre: string | null;
+  /** Total followers/fans exposed on the profile page, or null when
+   *  the number wasn't visible. SoundCloud shows "followers";
+   *  Bandcamp shows "fans" — we treat them interchangeably as a
+   *  popularity signal. */
+  followers: number | null;
+  /** Canonical profile URL as the page reports it (Firecrawl reads it
+   *  from the og:url / canonical link). Null when the page didn't
+   *  surface one. Used for URL normalization across redirects. */
+  canonicalUrl: string | null;
   /** Resolved source URL Firecrawl actually scraped. */
   sourceUrl: string;
 }
@@ -86,6 +96,8 @@ interface FirecrawlScrapeResponse {
       tags?: string[];
       bio?: string | null;
       profileGenre?: string | null;
+      followers?: number | null;
+      canonicalUrl?: string | null;
     };
     metadata?: {
       sourceURL?: string;
@@ -96,11 +108,11 @@ interface FirecrawlScrapeResponse {
 }
 
 /**
- * Extract artist-authored tags from a SoundCloud or Bandcamp profile.
- * `limit` caps how many recent tracks the Firecrawl LLM samples for
- * per-track hashtags — keeps the credit cost bounded (≈1 credit per
- * scrape in our plan regardless of limit, but the prompt stays
- * focused and quality goes up with tighter scope).
+ * Extract artist-authored tags + popularity from a SoundCloud or
+ * Bandcamp profile. `limit` caps how many recent tracks the Firecrawl
+ * LLM samples for per-track hashtags — keeps the credit cost bounded
+ * (≈1 credit per scrape in our plan regardless of limit, but the
+ * prompt stays focused and quality goes up with tighter scope).
  */
 export async function fetchArtistSelfTags(
   profileUrl: string,
@@ -111,12 +123,21 @@ export async function fetchArtistSelfTags(
     formats: ['extract'],
     extract: {
       prompt:
-        `From this artist profile, extract (1) the profile-level genre field if one is shown, ` +
-        `(2) the artist's bio paragraph if present, and (3) the set of genre-style hashtags ` +
-        `appearing on the artist's ${limit} most recent tracks. Aggregate the hashtags across ` +
-        `tracks, deduplicate case-insensitively, and return them ranked by frequency (most ` +
-        `frequent first). Include only music-genre or subgenre tags — exclude promotional ` +
-        `hashtags, mood/emoji tags, or release-type tags.`,
+        `From this artist profile, extract:\n` +
+        `(1) the profile-level genre field value if one is shown,\n` +
+        `(2) the artist's bio paragraph if present,\n` +
+        `(3) the set of genre-style hashtags appearing on the artist's ` +
+        `${limit} most recent tracks — aggregate across tracks, ` +
+        `deduplicate case-insensitively, return ranked by frequency ` +
+        `(most frequent first), include only music-genre or subgenre ` +
+        `tags (exclude promotional hashtags, mood/emoji tags, and ` +
+        `release-type tags),\n` +
+        `(4) the total follower count (SoundCloud: followers number; ` +
+        `Bandcamp: fans / supporters count) as an integer. Parse ` +
+        `abbreviated numbers into raw integers: "12.5K" → 12500, ` +
+        `"1,234" → 1234, "3.1M" → 3100000. Return null if not visible.\n` +
+        `(5) the canonical profile URL as displayed on the page (check ` +
+        `<link rel="canonical"> or og:url meta tag).`,
       schema: {
         type: 'object',
         properties: {
@@ -133,6 +154,16 @@ export async function fetchArtistSelfTags(
             type: 'string',
             description:
               'The profile-level genre field value, or empty string if none',
+          },
+          followers: {
+            type: ['integer', 'null'],
+            description:
+              'Total followers/fans as a raw integer, or null if not visible',
+          },
+          canonicalUrl: {
+            type: 'string',
+            description:
+              'Canonical profile URL from the page, or empty string if none',
           },
         },
         required: ['tags'],
@@ -167,6 +198,22 @@ export async function fetchArtistSelfTags(
     tags.push(clean);
   }
 
+  // Follower count can come back as integer, null, or — occasionally —
+  // as a stringified number Firecrawl didn't parse. Coerce defensively.
+  let followers: number | null = null;
+  const rawFollowers = extracted.followers;
+  if (typeof rawFollowers === 'number' && Number.isFinite(rawFollowers) && rawFollowers >= 0) {
+    followers = Math.round(rawFollowers);
+  } else if (typeof rawFollowers === 'string') {
+    const parsed = parseFirecrawlNumberString(rawFollowers);
+    if (parsed !== null) followers = parsed;
+  }
+
+  const canonicalUrl =
+    typeof extracted.canonicalUrl === 'string' && extracted.canonicalUrl.length > 0
+      ? extracted.canonicalUrl
+      : null;
+
   return {
     tags,
     bio: extracted.bio && extracted.bio.length > 0 ? extracted.bio : null,
@@ -174,9 +221,23 @@ export async function fetchArtistSelfTags(
       extracted.profileGenre && extracted.profileGenre.length > 0
         ? extracted.profileGenre
         : null,
+    followers,
+    canonicalUrl,
     sourceUrl:
       response.data.metadata?.sourceURL ??
       response.data.metadata?.url ??
       profileUrl,
   };
+}
+
+// Belt-and-suspenders: if Firecrawl's own LLM pass leaves a string like
+// "12.5K" instead of parsing it to 12500, do the conversion client-side.
+function parseFirecrawlNumberString(raw: string): number | null {
+  const s = raw.trim().toLowerCase().replace(/,/g, '');
+  const m = s.match(/^([\d.]+)\s*([km])?$/);
+  if (!m) return null;
+  const n = parseFloat(m[1]);
+  if (!Number.isFinite(n)) return null;
+  const mult = m[2] === 'k' ? 1000 : m[2] === 'm' ? 1_000_000 : 1;
+  return Math.round(n * mult);
 }
