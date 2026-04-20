@@ -8,7 +8,7 @@
 //     up on that escalation step — the whole enrichment run
 //     shouldn't abort because one tool hiccuped.
 //
-//     Two Phase 4f features bolted on for the full backfill:
+//     Phase 4f features bolted on for the full backfill:
 //
 //       (a) Ephemeral prompt caching — the system prompt embeds the
 //           full taxonomy vocabulary (~1600 subgenres, ~100 vibes),
@@ -24,6 +24,16 @@
 //           guess with confidence=low NOW") and make one final
 //           forced call with tool_choice pinned to submit_enrichment.
 //           The orchestrator flags stalled results for review.
+//
+//       (c) Consecutive search_web cap — after MAX_CONSECUTIVE_SEARCH_WEB
+//           calls in a row, the 5th+ is short-circuited with an
+//           is_error tool_result that forces the model to pivot to a
+//           different tool. The cap only applies to *consecutive*
+//           calls; a legitimate search → profile → search sequence
+//           resets the counter. Motivation: obscure artists were
+//           burning 5-7 iterations on repeat search_web calls before
+//           the stall fallback caught them — wastes tokens without
+//           producing better classifications.
 //
 //   - extractJson: balanced-brace extractor used as a fallback when
 //     we ask the model to return JSON as free text rather than via
@@ -53,6 +63,13 @@ function getClient(): Anthropic {
 export const SONNET_MODEL = 'claude-sonnet-4-6';
 const DEFAULT_MAX_TOKENS = 2000;
 const MAX_TOOL_ITERATIONS = 6;
+// Hard cap on consecutive search_web calls. After this many in a row,
+// the next is_error-pivoted back at the model so it can't keep looping.
+// Tuned from the canary: 4 is enough for a search → refine → search-
+// with-different-query → search-for-co-billed-context pattern that
+// actually converges, while still cutting off Radicchio/antron-style
+// spirals at iteration 5.
+const MAX_CONSECUTIVE_SEARCH_WEB = 4;
 
 export interface ToolDefinition {
   name: string;
@@ -112,6 +129,10 @@ export async function runToolLoop(opts: {
   ];
   const invocations: ToolInvocation[] = [];
   let lastStopReason: string | null = null;
+  // Tracks how many search_web tool_use blocks have fired in a row
+  // across iterations. Reset to 0 whenever the model calls any other
+  // tool. See MAX_CONSECUTIVE_SEARCH_WEB for rationale.
+  let consecutiveSearchWebCount = 0;
 
   // Anthropic caches up to and including the block marked with
   // cache_control. Marking the last tool definition caches the system
@@ -173,6 +194,33 @@ export async function runToolLoop(opts: {
         input: block.input as Record<string, unknown>,
       };
       invocations.push(invocation);
+
+      // Consecutive search_web guard. Update the counter first, then
+      // short-circuit if over cap. Any non-search_web call clears the
+      // streak so subsequent search_web calls start fresh.
+      if (block.name === 'search_web') {
+        consecutiveSearchWebCount++;
+        if (consecutiveSearchWebCount > MAX_CONSECUTIVE_SEARCH_WEB) {
+          toolResults.push({
+            type: 'tool_result',
+            tool_use_id: block.id,
+            content:
+              `search_web consecutive-call limit reached (` +
+              `${MAX_CONSECUTIVE_SEARCH_WEB} in a row). Do NOT call ` +
+              `search_web again on this artist. Pivot now: use ` +
+              `find_artist_profile if you have a name to look up on ` +
+              `SoundCloud/Bandcamp, fetch_artist_self_tags if you ` +
+              `already have a profile URL, or submit_enrichment with ` +
+              `your current best evidence (confidence="low" is ` +
+              `acceptable for thin signal).`,
+            is_error: true,
+          });
+          continue;
+        }
+      } else {
+        consecutiveSearchWebCount = 0;
+      }
+
       try {
         const result = await opts.executeToolCall(invocation);
         toolResults.push({
