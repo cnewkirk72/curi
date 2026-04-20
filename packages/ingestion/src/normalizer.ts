@@ -13,13 +13,24 @@
 //       * venue.default_genres/default_vibes (fallback)  → weight 1, gated
 //         *per dimension*: default_genres only apply when no higher-priority
 //         layer produced any genres, and default_vibes likewise for vibes.
-//         (Prior Phase 3.16 logic gated on any-signal-anywhere, which let a
-//         stray vibe from one layer suppress a venue's genre floor — fixed
-//         in Phase 3.17.)
+//
+// Phase 4f.8 additions:
+//   - Forward-prevention: classifyArtistName (from src/artist-parsing.ts) is
+//     called on every artistName before getOrCreateArtist, so scrapers that
+//     bypass parseArtists (e.g. RA's structured artist objects) still get
+//     filtered against the same reject list used at audit time. Invalid names
+//     are skipped with a console.warn; we don't throw, because a single bad
+//     lineup entry shouldn't fail the whole event.
+//   - Cross-source duplicate-event warning: after a NEW event is inserted,
+//     check for siblings with (venue_id, same day, overlapping title
+//     fingerprint). Logs only — forward-prevention would require a canonical
+//     event model we don't have yet. The next audit run surfaces these for
+//     manual merge via duplicate_events.
 import { supabase } from './supabase.js';
 import { slugify } from './slug.js';
 import { enrichArtist as mbEnrichArtist } from './musicbrainz.js';
 import { resolveTags } from './taxonomy.js';
+import { classifyArtistName } from './artist-parsing.js';
 import type { RawEvent } from './types.js';
 import type { Database, Json } from './db-types.js';
 
@@ -32,6 +43,24 @@ type VenueDefaults = {
 // Refresh MB enrichment for an artist every 30 days. Beyond that, tags may have
 // drifted (new releases, editorial changes).
 const ENRICHMENT_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
+// Shared with src/audit.ts — kept local to avoid a cross-file dependency on
+// a tiny helper. If either implementation changes, update both.
+const EVENT_STOP: ReadonlySet<string> = new Set([
+  'presents', 'present', 'pres', 'live', 'at', 'the', 'a', 'an',
+  'with', 'feat', 'featuring', 'vs', 'and', 'party', 'night', 'show',
+  'nyc', 'brooklyn', 'manhattan', 'club', 'room', 'bar', 'dj',
+]);
+
+function titleFingerprint(title: string): string {
+  return (title ?? '')
+    .toLowerCase()
+    .replace(/[^a-z0-9 ]/g, ' ')
+    .split(/\s+/)
+    .filter((w) => w.length >= 2 && !EVENT_STOP.has(w))
+    .slice(0, 3)
+    .join(' ');
+}
 
 function isStale(lastEnrichedAt: string | null): boolean {
   if (!lastEnrichedAt) return true;
@@ -78,8 +107,6 @@ async function enrichArtistIfStale(
 
   const detail = await mbEnrichArtist(artist.name);
   if (!detail) {
-    // No MB hit. Mark as enriched so we don't re-try every run; we'll revisit
-    // in ENRICHMENT_TTL_MS.
     const updated = await supabase()
       .from('artists')
       .update({ last_enriched_at: new Date().toISOString() })
@@ -117,11 +144,6 @@ interface EventRollup {
   vibes: string[];
 }
 
-/**
- * Generic weighted signal for the rollup. The normalizer builds one per
- * source of truth (RA event tags, each artist, venue defaults) and hands
- * them to rollup() as a flat list — the function itself stays dumb.
- */
 interface RollupSignal {
   genres: string[];
   vibes: string[];
@@ -160,9 +182,6 @@ export interface UpsertResult {
 export async function upsertEvent(event: RawEvent): Promise<UpsertResult> {
   const client = supabase();
 
-  // 1. Resolve venue_id by slug and pull default_genres/default_vibes in
-  //    the same query — used later as a rollup fallback for events where
-  //    every other signal came back empty.
   let venueId: string | null = null;
   let venueDefaults: VenueDefaults = { genres: [], vibes: [] };
   if (event.venueSlug) {
@@ -174,13 +193,11 @@ export async function upsertEvent(event: RawEvent): Promise<UpsertResult> {
     if (venue.error) throw venue.error;
     venueId = venue.data?.id ?? null;
     venueDefaults = {
-      // Columns are nullable while backfill rolls out; tolerate null.
       genres: (venue.data as { default_genres?: string[] | null })?.default_genres ?? [],
       vibes: (venue.data as { default_vibes?: string[] | null })?.default_vibes ?? [],
     };
   }
 
-  // 2. Upsert event (on source, source_id).
   const { data: eventRow, error: eventErr } = await client
     .from('events')
     .upsert(
@@ -206,24 +223,57 @@ export async function upsertEvent(event: RawEvent): Promise<UpsertResult> {
   const wasJustCreated =
     eventRow.created_at === eventRow.updated_at; // close enough — same ms
 
+  // Phase 4f.8 cross-source duplicate-event warning. Only on NEW inserts so
+  // we don't pay a query for every update. Logs only — audit surfaces merges.
+  if (wasJustCreated && venueId && event.startsAt) {
+    const day = event.startsAt.slice(0, 10);
+    const fp = titleFingerprint(event.title);
+    if (fp) {
+      const { data: siblings } = await client
+        .from('events')
+        .select('id, title, source, source_id')
+        .eq('venue_id', venueId)
+        .gte('starts_at', `${day}T00:00:00Z`)
+        .lte('starts_at', `${day}T23:59:59Z`)
+        .neq('id', eventRow.id);
+      for (const s of siblings ?? []) {
+        const sfp = titleFingerprint(s.title ?? '');
+        if (sfp && (sfp === fp || sfp.includes(fp) || fp.includes(sfp))) {
+          console.warn(
+            `[dedupe] New event ${event.source}/${event.sourceId} "${event.title}" ` +
+              `looks like a duplicate of ${s.source}/${s.source_id} "${s.title}" ` +
+              `at venue_id=${venueId}, day=${day}. Audit will surface this for merge.`,
+          );
+        }
+      }
+    }
+  }
+
   // 3. Upsert artists + enrich + link event_artists.
   const artistRows: Array<{ artist: ArtistRow; isHeadliner: boolean; position: number }> = [];
   for (let i = 0; i < event.artistNames.length; i++) {
     const name = event.artistNames[i];
     if (!name) continue;
-    let artist = await getOrCreateArtist(name);
+
+    // Phase 4f.8 forward-prevention. parseArtists already applies the same
+    // rule, but structured-data scrapers (RA GraphQL, Shotgun) can push names
+    // that never went through it. classifyArtistName is idempotent so running
+    // it here is safe even for parseArtists-origin names.
+    const { valid, cleaned, reason } = classifyArtistName(name);
+    if (!valid) {
+      console.warn(
+        `[normalizer] rejecting artist "${name}" (reason=${reason}) for event ${event.source}/${event.sourceId}`,
+      );
+      continue;
+    }
+
+    let artist = await getOrCreateArtist(cleaned);
     artist = await enrichArtistIfStale(artist);
-    const isHeadliner = i === 0; // first in list = top billing
+    const isHeadliner = i === 0;
     artistRows.push({ artist, isHeadliner, position: i });
   }
 
   if (artistRows.length > 0) {
-    // Dedupe by artist_id. If an event lists the same artist twice (either
-    // literal duplicates or two name variants that slugify identically), two
-    // rows with the same (event_id, artist_id) in a single INSERT ... ON
-    // CONFLICT statement trigger Postgres's "cannot affect row a second time"
-    // error (error 21000). Keep the first occurrence — it preserves the
-    // headliner flag from the top-billed position.
     const seenArtistIds = new Set<string>();
     const eaPayload: Array<{
       event_id: string;
@@ -249,14 +299,6 @@ export async function upsertEvent(event: RawEvent): Promise<UpsertResult> {
   }
 
   // 4. Event rollup — three-layer weighted aggregation.
-  //
-  //    Layer A: source-supplied event genres (RA's `event.genres`, resolved
-  //    through taxonomy_map + smart-add). Highest weight because these are
-  //    curated per-event by a human editor, and they don't depend on MB
-  //    having any tags for the billed artists at all. This is the fix for
-  //    Phase 3.15's coverage gap: 410/548 MBID-matched artists had zero MB
-  //    tags, so the old artist-only rollup produced empty genres/vibes
-  //    even when RA already told us "House" or "Techno" at the event level.
   const sourceSignals: RollupSignal[] = [];
   if (event.sourceGenres && event.sourceGenres.length > 0) {
     const resolved = await resolveTags(
@@ -269,7 +311,6 @@ export async function upsertEvent(event: RawEvent): Promise<UpsertResult> {
     });
   }
 
-  //    Layer B: per-artist genres/vibes, 2× on headliner.
   const artistSignals: RollupSignal[] = artistRows.map(
     ({ artist, isHeadliner }) => ({
       genres: artist.genres ?? [],
@@ -278,17 +319,6 @@ export async function upsertEvent(event: RawEvent): Promise<UpsertResult> {
     }),
   );
 
-  //    Layer C (fallback only): venue defaults. Gate the fallback *per
-  //    dimension* (genre vs vibe) independently — in Phase 3.16 we gated
-  //    on "any signal anywhere", which meant a single vibe coming through
-  //    (e.g. ra-nyc's "Club" tag → club-focused vibe, no genre) would
-  //    disable the whole fallback and leave genres empty at rooms with a
-  //    clear house identity. Symptom: "Body Hack" at Nowadays landed with
-  //    vibes=[club-focused] and genres=[] because the vibe-only signal
-  //    flipped the gate even though genres were untouched. Split the two
-  //    dimensions so a venue's default_genres still fires when the higher
-  //    layers produced zero genres, regardless of what vibes did — and
-  //    vice versa.
   const haveAnyHigherGenreSignal =
     sourceSignals.some((s) => s.genres.length > 0) ||
     artistSignals.some((s) => s.genres.length > 0);

@@ -10,6 +10,12 @@
 // The goal is "probably an artist name" — downstream MusicBrainz lookup decides
 // what's real. False positives are cheap (enrichment just fails); false
 // negatives hide artists entirely, so we err on the side of inclusion.
+//
+// This module also exposes classifyArtistName / cleanArtistPiece / NOISE_EXACT
+// etc. so the audit pipeline (src/audit.ts) and the runtime normalizer
+// (src/normalizer.ts) share one source of truth for reject rules. parseArtists
+// itself delegates its keep/clean logic through classifyArtistName, so any
+// rule added here takes effect at scrape time AND audit time.
 
 const PRESENTS_SPLIT = /(?:^|[^a-z0-9])(?:presents?|present|pres\.)\s*:?\s*/i;
 // `feat` is followed by `\b\.?` rather than `feat\.?\b` so the optional period
@@ -25,18 +31,26 @@ const COMMA_SPLIT = /\s*(?:,|\+|\/|;|·|•|→|\||\band\b)\s*/i;
 const LIVE_TAG = /\s*[([](?:live|dj set|live set|dj|all night long|anl|b2b)[)\]]\s*/gi;
 
 // "Series: Artist1, Artist2…" — short prefix (≤ 5 words) + colon at title start.
-// Conservative: only strip if the first word isn't itself likely an artist
-// handle (e.g. doesn't start with DJ, a lowercase handle, or obvious stage name).
 const SERIES_PREFIX = /^([A-Z][\w'&\s]{1,60}?):\s+(?=\S)/;
 
 // "X \"Album\" Release Show" — strip quoted album/track titles and trailing
 // "Release Show" / "Album Release" / "EP Release" tails.
-// Match both straight ASCII quotes and curly quotes (U+201C / U+201D, U+2018 / U+2019).
-// Use explicit Unicode escapes so the regex doesn't depend on the file's quote bytes.
 const QUOTED_BLOCK = /[\u201C\u201D\u2018\u2019"'][^\u201C\u201D\u2018\u2019"']+[\u201C\u201D\u2018\u2019"']/g;
 const RELEASE_TAIL = /\s*(?:album release|ep release|release show|record release|single release)\s*$/i;
 
-const NOISE_EXACT = new Set([
+// Trailing orphan conjunctions — e.g. "Nikara Warren x" left after a quoted
+// block next to it was stripped. Also handles leading orphans ("& Nikara").
+const ORPHAN_CONJ_TAIL = /\s+(?:b2b|b3b|b4b|vs\.?|x|&|\+|\/)\s*$/i;
+const ORPHAN_CONJ_HEAD = /^(?:b2b|b3b|b4b|vs\.?|x|&|\+|\/)\s+/i;
+
+/**
+ * Placeholder / lineup-noise exact matches. Case-insensitive full-name match
+ * only — "DJ Shadow" normalizes to "dj shadow" (with whitespace preserved) and
+ * will NOT collide with anything shorter here, so real artists whose names
+ * start with "DJ" / "MC" are always kept.
+ */
+export const NOISE_EXACT: ReadonlySet<string> = new Set([
+  // Original Phase 2a noise list (task #27).
   'tbd',
   'tba',
   'special guest',
@@ -46,16 +60,46 @@ const NOISE_EXACT = new Set([
   'local support',
   'residents',
   'hosts',
+  // Phase 4f.8 audit extensions — placeholder variants that have leaked into
+  // the artists table historically (scrapers bypassing parseArtists, or
+  // structured scrapers pulling RA / Shotgun lineup rows verbatim).
+  'guest',
+  'guests',
+  'support',
+  'supporting',
+  'opener',
+  'openers',
+  'special',
+  'secret',
+  'secret guest',
+  'secret guests',
+  'mystery guest',
+  'resident',
+  'various',
+  'various artists',
+  'various hosts',
+  'unknown',
+  'friends',
+  'and friends',
+  'and djs',
+  'more',
+  'more acts tba',
+  'headliner',
+  'headliners',
+  'djs',
+  'host',
 ]);
 
-// Event-descriptor words that, when present in a piece, strongly indicate the
-// piece is an event title/format rather than an artist name.
-//   "Climate Game Show Night"  → drop
-//   "Wednesday Panel Discussion" → drop
-//   "Ableton Workshop" → drop
-// Matches only when the word appears as a whole token (not inside another word)
-// so legit stage names like "Show Me Body" or "Panel Van" aren't false-positived.
-const EVENT_WORD_PATTERNS = [
+/**
+ * Event-descriptor words that, when present in a piece, strongly indicate the
+ * piece is an event title/format rather than an artist name.
+ *   "Climate Game Show Night"  → drop
+ *   "Wednesday Panel Discussion" → drop
+ *   "Ableton Workshop" → drop
+ * Matches only when the word appears as a whole token (not inside another word)
+ * so legit stage names like "Show Me Body" or "Panel Van" aren't false-positived.
+ */
+export const EVENT_WORD_PATTERNS: readonly RegExp[] = [
   /\bgame\s+show\b/i,
   /\bquiz\s+night\b/i,
   /\btrivia\b/i,
@@ -70,19 +114,20 @@ const EVENT_WORD_PATTERNS = [
   /\btalk\b(?!\s+box)/i, // "talk" but not "talk box"
 ];
 
-function looksLikeEventTitle(piece: string): boolean {
+export function looksLikeEventTitle(piece: string): boolean {
   for (const pat of EVENT_WORD_PATTERNS) {
     if (pat.test(piece)) return true;
   }
   return false;
 }
 
-// Trailing orphan conjunctions — e.g. "Nikara Warren x" left after a quoted
-// block next to it was stripped. Also handles leading orphans ("& Nikara").
-const ORPHAN_CONJ_TAIL = /\s+(?:b2b|b3b|b4b|vs\.?|x|&|\+|\/)\s*$/i;
-const ORPHAN_CONJ_HEAD = /^(?:b2b|b3b|b4b|vs\.?|x|&|\+|\/)\s+/i;
-
-function clean(piece: string): string {
+/**
+ * Strip live/dj/quote/release-tail noise from a raw artist piece and collapse
+ * whitespace. Idempotent — running it on an already-cleaned string returns
+ * the same string. Exported so audit.ts can use the same cleaning pass when
+ * proposing punctuation-artifact repairs.
+ */
+export function cleanArtistPiece(piece: string): string {
   return piece
     .replace(LIVE_TAG, ' ')
     .replace(QUOTED_BLOCK, ' ')
@@ -94,15 +139,60 @@ function clean(piece: string): string {
     .trim();
 }
 
-function keep(piece: string): boolean {
-  if (!piece) return false;
-  if (piece.length < 2) return false;
-  if (piece.length > 80) return false;
-  if (NOISE_EXACT.has(piece.toLowerCase())) return false;
-  if (looksLikeEventTitle(piece)) return false;
-  // Bare venue phrases like "the basement" — we can't reliably tell apart from a DJ
-  // named "The Basement", so we let these through and let MB filter.
-  return true;
+export type ClassifyReason =
+  | 'empty'
+  | 'too_short'
+  | 'too_long'
+  | 'noise'
+  | 'event_title';
+
+export interface ClassifyResult {
+  /** True if the cleaned name is plausibly an artist and should be kept. */
+  valid: boolean;
+  /**
+   * Non-null when valid=false. Gives the audit category and the scraper a
+   * machine-readable reject code.
+   */
+  reason: ClassifyReason | null;
+  /** Cleaned version of the input (quotes / live tags / orphan conjunctions stripped). */
+  cleaned: string;
+}
+
+/**
+ * Central rule for "is this string an artist name we should keep?". Used by:
+ *   - parseArtists() at scrape time (via the keep path below)
+ *   - src/normalizer.ts at upsert time as forward-prevention
+ *   - src/audit.ts at audit time to detect junk rows already in the DB
+ *
+ * One source of truth means: any new reject rule added here automatically
+ * applies across all three call sites. That's the whole point of the refactor.
+ */
+export function classifyArtistName(
+  raw: string | null | undefined,
+): ClassifyResult {
+  const cleaned = cleanArtistPiece(raw ?? '');
+  if (!cleaned) return { valid: false, reason: 'empty', cleaned };
+  if (cleaned.length < 2) return { valid: false, reason: 'too_short', cleaned };
+  if (cleaned.length > 80) return { valid: false, reason: 'too_long', cleaned };
+  if (NOISE_EXACT.has(cleaned.toLowerCase())) {
+    return { valid: false, reason: 'noise', cleaned };
+  }
+  if (looksLikeEventTitle(cleaned)) {
+    return { valid: false, reason: 'event_title', cleaned };
+  }
+  // Bare venue phrases like "the basement" — we can't reliably tell apart from
+  // a DJ named "The Basement", so we let these through and let MB filter.
+  return { valid: true, reason: null, cleaned };
+}
+
+/**
+ * Collision key for audit duplicate detection. Case-insensitive, whitespace-
+ * normalized, but preserves punctuation and unicode symbols — so symbol-only
+ * artists remain distinct from each other. Per Christian: some legit artist
+ * names are entirely symbols, so we do NOT strip punct for identity.
+ */
+export function artistCollisionKey(name: string): string {
+  return (name ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
 }
 
 export function parseArtists(title: string): string[] {
@@ -120,12 +210,9 @@ export function parseArtists(title: string): string[] {
 
   // 1b. "Series Name: artists…" — strip the prefix if it looks like a
   // series / showcase name (capitalized, short, followed by a list).
-  // Runs regardless of whether 1 matched: presenter titles can still have a
-  // series prefix after the "presents", e.g. "X presents Take Two: A, B, C".
   const seriesMatch = working.match(SERIES_PREFIX);
   if (seriesMatch) {
     const afterColon = working.slice(seriesMatch[0].length);
-    // Only strip if what's after the colon looks like a list of 2+ artists.
     if (afterColon.includes(',') || COMMA_SPLIT.test(afterColon) || B2B_SPLIT.test(afterColon)) {
       working = afterColon;
     }
@@ -153,12 +240,12 @@ export function parseArtists(title: string): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
   for (const raw of pieces) {
-    const c = clean(raw);
-    if (!keep(c)) continue;
-    const k = c.toLowerCase();
+    const { valid, cleaned } = classifyArtistName(raw);
+    if (!valid) continue;
+    const k = cleaned.toLowerCase();
     if (seen.has(k)) continue;
     seen.add(k);
-    out.push(c);
+    out.push(cleaned);
   }
   return out;
 }
