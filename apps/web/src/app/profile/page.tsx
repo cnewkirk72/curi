@@ -1,10 +1,15 @@
 // Profile — account identity, save count, taste preferences, sign-out.
 //
+// Identity (username / display name / avatar) lives in public.profiles
+// and is edited through <ProfileForm>, which wraps the server actions
+// in lib/profile-actions.ts. Taste prefs live in user_prefs and are
+// edited through <PreferencesForm>. The two forms own disjoint slices
+// of state, so they can be saved independently — tapping Save on one
+// does not disturb the other's drafts.
+//
 // Preferences are persisted in user_prefs (migration 0005) and
 // fetched through getUserPrefs, which falls back to DEFAULT_PREFS
-// for first-visit viewers who haven't saved anything yet. The form
-// itself is a client component so we can debounce toggles behind
-// a single explicit Save rather than firing a write per chip.
+// for first-visit viewers who haven't saved anything yet.
 
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
@@ -12,10 +17,12 @@ import { Bookmark, ArrowUpRight } from 'lucide-react';
 import { AppHeader } from '@/components/app-header';
 import { BottomNav } from '@/components/bottom-nav';
 import { PreferencesForm } from '@/components/preferences-form';
+import { ProfileForm } from '@/components/profile-form';
 import { createClient } from '@/lib/supabase/server';
 import { signOut } from '@/lib/supabase/actions';
 import { getSaveCount } from '@/lib/saves';
 import { getUserPrefs } from '@/lib/preferences';
+import { getMyProfile } from '@/lib/profile';
 
 export const dynamic = 'force-dynamic';
 
@@ -28,21 +35,35 @@ export default async function ProfilePage() {
   // Signed-out users shouldn't see this screen at all — send them to login.
   if (!user) redirect('/login?next=/profile');
 
-  // Count is cheap (head+count only — see getSaveCount) and prefs
-  // is a single row lookup. Both are auth-gated by RLS so they run
-  // *after* we know there's a session, but they're independent of
-  // each other — parallelize.
-  const [saveCount, prefs] = await Promise.all([
+  // Count is cheap (head+count only — see getSaveCount), prefs is a
+  // single row lookup, profile is a single row lookup. All three are
+  // auth-gated by RLS so they run *after* we know there's a session,
+  // but they're independent of each other — parallelize.
+  const [saveCount, prefs, profile] = await Promise.all([
     getSaveCount(),
     getUserPrefs(),
+    getMyProfile(),
   ]);
 
-  const name =
+  // Google OAuth stores the profile picture under two different keys
+  // depending on when Supabase last updated (`picture` on newer
+  // sessions, `avatar_url` on older). Prefer the newer, fall back.
+  const googleAvatarUrl =
+    (user.user_metadata?.picture as string | undefined) ??
+    (user.user_metadata?.avatar_url as string | undefined) ??
+    null;
+
+  // Identity-card display values. Prefer profile.display_name /
+  // username if set; fall back to Google's full_name / email so
+  // first-visit signins don't look like empty placeholders.
+  const displayName =
+    profile?.display_name ??
     (user.user_metadata?.full_name as string | undefined) ??
     (user.user_metadata?.name as string | undefined) ??
     user.email ??
     'You';
-  const avatar = user.user_metadata?.avatar_url as string | undefined;
+  const cardAvatar = profile?.avatar_url ?? googleAvatarUrl;
+  const handle = profile?.username ?? null;
 
   return (
     <div className="relative min-h-dvh">
@@ -58,27 +79,27 @@ export default async function ProfilePage() {
           </h2>
         </section>
 
-        {/* ── Identity card ───────────────────────────────────────── */}
+        {/* ── Identity card — summary only; edit is below in ProfileForm ── */}
         <div className="curi-glass rounded-2xl p-5 shadow-card">
           <div className="flex items-center gap-4">
-            {avatar ? (
+            {cardAvatar ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
-                src={avatar}
+                src={cardAvatar}
                 alt=""
-                className="h-12 w-12 rounded-full border border-border"
+                className="h-12 w-12 rounded-full border border-border object-cover"
               />
             ) : (
               <div className="flex h-12 w-12 items-center justify-center rounded-full border border-border bg-bg-elevated text-sm font-semibold text-fg-primary">
-                {name.charAt(0).toUpperCase()}
+                {displayName.charAt(0).toUpperCase()}
               </div>
             )}
             <div className="min-w-0 flex-1">
               <div className="truncate text-sm font-medium text-fg-primary">
-                {name}
+                {displayName}
               </div>
               <div className="truncate text-2xs text-fg-muted">
-                {user.email}
+                {handle ? `@${handle}` : (user.email ?? '')}
               </div>
             </div>
             <span className="shrink-0 rounded-pill border border-border bg-bg-elevated px-2.5 py-1 text-2xs text-fg-muted">
@@ -110,6 +131,28 @@ export default async function ProfilePage() {
             <ArrowUpRight className="h-4 w-4 shrink-0 text-fg-dim transition group-hover:text-fg-muted" />
           </Link>
         </section>
+
+        {/* ── Identity editor ─────────────────────────────────────── */}
+        {/* Always render even when `profile` is null — getMyProfile
+            returns null if the handle_new_user trigger failed. The
+            form falls back to empty strings as drafts, so saving
+            still works (update → unique-violation or success). */}
+        <ProfileForm
+          initial={
+            profile ?? {
+              id: user.id,
+              username: null,
+              display_name: null,
+              avatar_url: null,
+              // These two are read-only in the form; synthesize safe
+              // fallbacks so the type is satisfied.
+              created_at: new Date(0).toISOString(),
+              updated_at: new Date(0).toISOString(),
+            }
+          }
+          googleAvatarUrl={googleAvatarUrl}
+          emailFallback={user.email ?? null}
+        />
 
         {/* ── Preferences ─────────────────────────────────────────── */}
         <PreferencesForm initial={prefs} />

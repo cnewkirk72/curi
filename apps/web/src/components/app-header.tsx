@@ -2,8 +2,10 @@
 //
 // Left:  "curi" wordmark + NYC badge (same as the login screen to
 //        preserve the brand thread post-auth)
-// Right: Google avatar that links to /profile if signed in, or a
-//        compact "Sign in" pill if not.
+// Right: Profile avatar that links to /profile if signed in, or a
+//        compact "Sign in" pill if not. Prefers public.profiles
+//        (custom upload / Google-fallback) over the raw OAuth
+//        metadata so changes on /profile propagate instantly.
 //
 // Kept as a server component — auth state is fetched inline rather
 // than passed in as a prop, so any page wanting the header doesn't
@@ -11,6 +13,7 @@
 
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/server';
+import { getMyProfile } from '@/lib/profile';
 
 export async function AppHeader() {
   const supabase = createClient();
@@ -18,8 +21,18 @@ export async function AppHeader() {
     data: { user },
   } = await supabase.auth.getUser();
 
-  const avatar = user?.user_metadata?.avatar_url as string | undefined;
+  // Fetch profile in parallel is overkill — we only hit this path
+  // when `user` exists, and a single maybeSingle is <10ms on warm
+  // connections. Skipping for signed-out viewers saves the round-trip.
+  const profile = user ? await getMyProfile() : null;
+
+  const avatar =
+    profile?.avatar_url ??
+    (user?.user_metadata?.picture as string | undefined) ??
+    (user?.user_metadata?.avatar_url as string | undefined) ??
+    undefined;
   const name =
+    profile?.display_name ??
     (user?.user_metadata?.full_name as string | undefined) ??
     (user?.user_metadata?.name as string | undefined) ??
     user?.email ??
@@ -41,13 +54,14 @@ export async function AppHeader() {
           className="shrink-0 rounded-full ring-offset-2 ring-offset-bg-deep focus-visible:ring-2 focus-visible:ring-accent"
         >
           {avatar ? (
-            // Google avatars come off lh3.googleusercontent.com; we'll
-            // allowlist that domain when we swap to next/image in 3.7.
+            // Avatars come from either Google (lh3.googleusercontent.com)
+            // or our own Supabase Storage avatars bucket. Both hosts
+            // will be allowlisted when we swap to next/image in 3.7.
             // eslint-disable-next-line @next/next/no-img-element
             <img
               src={avatar}
               alt={name}
-              className="h-8 w-8 rounded-full border border-border"
+              className="h-8 w-8 rounded-full border border-border object-cover"
             />
           ) : (
             <div className="flex h-8 w-8 items-center justify-center rounded-full border border-border bg-bg-elevated text-xs font-semibold text-fg-primary">

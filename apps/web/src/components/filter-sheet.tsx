@@ -13,7 +13,7 @@
 // sheet closes immediately and the card list pulses via the returned
 // `isPending` flag while the server refetches.
 
-import { useEffect, useState, useTransition } from 'react';
+import { Fragment, useEffect, useMemo, useState, useTransition } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { X } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -21,11 +21,15 @@ import {
   DATE_OPTIONS,
   GENRE_OPTIONS,
   VIBE_OPTIONS,
+  parentHasSubgenres,
   serializeFilters,
+  subgenresForParent,
   type DateFilter,
   type FilterState,
   type FilterOption,
 } from '@/lib/filters';
+import { getSubgenresByParent } from '@/lib/taxonomy';
+import { SubgenrePicker } from '@/components/subgenre-picker';
 
 type Props = {
   open: boolean;
@@ -82,8 +86,37 @@ export function FilterSheet({ open, onClose, initialFilters }: Props) {
   }
 
   function clearAll() {
-    setDraft({ when: 'all', genres: [], vibes: [] });
+    setDraft({ when: 'all', genres: [], vibes: [], subgenres: [] });
   }
+
+  // Toggling a parent genre cascades to its subgenres: if the
+  // parent is being turned OFF, any subgenres registered to that
+  // parent get cleared too. Otherwise the user would see a ghost
+  // "?subgenres=dark+techno" active chip with no parent to anchor it.
+  function toggleGenre(slug: string) {
+    setDraft((d) => {
+      const turningOn = !d.genres.includes(slug);
+      const nextGenres = toggle(d.genres, slug);
+      if (turningOn) return { ...d, genres: nextGenres };
+      const childSlugs = new Set(
+        subgenresForParent(slug).map((o) => o.slug),
+      );
+      return {
+        ...d,
+        genres: nextGenres,
+        subgenres: d.subgenres.filter((s) => !childSlugs.has(s)),
+      };
+    });
+  }
+
+  function toggleSubgenre(slug: string) {
+    setDraft((d) => ({ ...d, subgenres: toggle(d.subgenres, slug) }));
+  }
+
+  // Shared Map<parent, subgenre[]> for the picker. Computed once;
+  // the curated table is static, so memoization keeps us from
+  // re-allocating the Map on every open/toggle.
+  const subgenresByParent = useMemo(() => getSubgenresByParent(), []);
 
   return (
     <>
@@ -152,15 +185,49 @@ export function FilterSheet({ open, onClose, initialFilters }: Props) {
               </div>
             </Section>
 
-            {/* Genre */}
+            {/* Genre + inline Subgenre picker.
+                When a parent has curated subgenres AND is selected,
+                its subgenre row appears immediately below it in the
+                flex-wrap grid (basis-full forces the line break).
+                This mirrors the in-app pattern used by onboarding,
+                so a user learns one interaction and gets it
+                everywhere. */}
             <Section label="Genre" hint="Multi-select">
-              <OptionGrid
-                options={GENRE_OPTIONS}
-                selected={draft.genres}
-                onToggle={(slug) =>
-                  setDraft((d) => ({ ...d, genres: toggle(d.genres, slug) }))
-                }
-              />
+              <div className="flex flex-wrap gap-2">
+                {GENRE_OPTIONS.map((opt) => {
+                  const parentActive = draft.genres.includes(opt.slug);
+                  const showSubPicker =
+                    parentActive && parentHasSubgenres(opt.slug);
+                  return (
+                    <Fragment key={opt.slug}>
+                      <GenrePill
+                        active={parentActive}
+                        hasChildren={parentHasSubgenres(opt.slug)}
+                        onClick={() => toggleGenre(opt.slug)}
+                      >
+                        {opt.label}
+                      </GenrePill>
+                      {showSubPicker && (
+                        <SubgenrePicker
+                          parents={[opt.slug]}
+                          selectedParents={[opt.slug]}
+                          subgenresByParent={subgenresByParent}
+                          selectedSubgenres={draft.subgenres}
+                          onToggle={toggleSubgenre}
+                        />
+                      )}
+                    </Fragment>
+                  );
+                })}
+              </div>
+              {/* Hint — surfaced only when no parents are selected,
+                  to tell users subgenres will appear. Fades out as
+                  soon as any parent is on. */}
+              {draft.genres.length === 0 && (
+                <p className="mt-2 text-[11px] text-fg-dim">
+                  Pick a genre to reveal subgenres.
+                </p>
+              )}
             </Section>
 
             {/* Vibe */}
@@ -293,5 +360,47 @@ function OptionGrid({
         );
       })}
     </div>
+  );
+}
+
+// GenrePill — same shape as the OptionGrid chip, with a subtle
+// chevron-dot indicator when the parent has curated subgenres. The
+// dot flips to a filled cyan marker when the parent is active, so
+// it doubles as a "you can reveal more here" affordance.
+function GenrePill({
+  active,
+  hasChildren,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  hasChildren: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={cn(
+        'inline-flex items-center gap-1.5 rounded-pill border px-3.5 py-1.5 text-xs font-medium',
+        'transition duration-micro ease-expo active:scale-[0.96]',
+        active
+          ? 'border-accent/40 bg-accent-chip text-accent'
+          : 'border-border bg-bg-elevated text-fg-muted hover:text-fg-primary',
+      )}
+    >
+      {children}
+      {hasChildren && (
+        <span
+          aria-hidden
+          className={cn(
+            'inline-block h-1.5 w-1.5 rounded-pill transition',
+            active ? 'bg-accent' : 'bg-border-strong',
+          )}
+        />
+      )}
+    </button>
   );
 }

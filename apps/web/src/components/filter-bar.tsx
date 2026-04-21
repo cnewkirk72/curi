@@ -21,10 +21,12 @@ import {
   activeFilterCount,
   hasActiveFilters,
   labelForGenre,
+  labelForSubgenre,
   labelForVibe,
   labelForWhen,
   parseFilters,
   serializeFilters,
+  subgenresForParent,
   type FilterState,
 } from '@/lib/filters';
 import { FilterSheet } from '@/components/filter-sheet';
@@ -48,13 +50,24 @@ export function FilterBar() {
     commit({ ...filters, when: 'all' });
   }
   function removeGenre(slug: string) {
-    commit({ ...filters, genres: filters.genres.filter((g) => g !== slug) });
+    // Mirror the filter-sheet's cascade: removing a parent also
+    // clears any of its subgenres. Without this, the URL would
+    // end up with orphaned subgenres whose parent disappeared.
+    const childSlugs = new Set(subgenresForParent(slug).map((o) => o.slug));
+    commit({
+      ...filters,
+      genres: filters.genres.filter((g) => g !== slug),
+      subgenres: filters.subgenres.filter((s) => !childSlugs.has(s)),
+    });
   }
   function removeVibe(slug: string) {
     commit({ ...filters, vibes: filters.vibes.filter((v) => v !== slug) });
   }
+  function removeSubgenre(slug: string) {
+    commit({ ...filters, subgenres: filters.subgenres.filter((s) => s !== slug) });
+  }
   function clearAll() {
-    commit({ when: 'all', genres: [], vibes: [] });
+    commit({ when: 'all', genres: [], vibes: [], subgenres: [] });
   }
 
   return (
@@ -84,7 +97,9 @@ export function FilterBar() {
           )}
         </button>
 
-        {/* Active-filter chips. Order: when → genres → vibes. */}
+        {/* Active-filter chips. Order: when → genres → subgenres → vibes.
+            Subgenres follow their parent genre in visual order to
+            keep the chip row readable. */}
         {filters.when !== 'all' && (
           <ActiveChip onRemove={clearWhen}>
             {labelForWhen(filters.when)}
@@ -93,6 +108,11 @@ export function FilterBar() {
         {filters.genres.map((slug) => (
           <ActiveChip key={`g-${slug}`} onRemove={() => removeGenre(slug)}>
             {labelForGenre(slug)}
+          </ActiveChip>
+        ))}
+        {filters.subgenres.map((slug) => (
+          <ActiveChip key={`s-${slug}`} onRemove={() => removeSubgenre(slug)}>
+            {labelForSubgenre(slug)}
           </ActiveChip>
         ))}
         {filters.vibes.map((slug) => (
