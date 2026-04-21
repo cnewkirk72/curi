@@ -15,7 +15,7 @@ const config: Config = {
       screens: { '2xl': '1400px' },
     },
     extend: {
-      // ─── Color tokens ────────────────────────────────────────────────
+      // ─── Color tokens ───────────────────────────────────
       colors: {
         // Canvas
         'bg-deep': 'hsl(var(--bg-deep))',
@@ -66,7 +66,7 @@ const config: Config = {
         ring: 'hsl(var(--accent))',
       },
 
-      // ─── Typography ──────────────────────────────────────────────────
+      // ─── Typography ──────────────────────────────────────
       fontFamily: {
         // Display: Space Grotesk — headings, event titles, section labels
         display: ['var(--font-display)', 'system-ui', 'sans-serif'],
@@ -89,7 +89,7 @@ const config: Config = {
         display: '-0.02em',
       },
 
-      // ─── Radii ───────────────────────────────────────────────────────
+      // ─── Radii ──────────────────────────────────────────────
       borderRadius: {
         // Cards, sheets, event images
         '2xl': '16px',
@@ -109,7 +109,7 @@ const config: Config = {
         'nav-top': '0 -1px 0 rgba(255, 255, 255, 0.06) inset',
       },
 
-      // ─── Blur ────────────────────────────────────────────────────────
+      // ─── Blur ─────────────────────────────────────────────────
       backdropBlur: {
         glass: '20px',
       },
@@ -117,7 +117,7 @@ const config: Config = {
         glass: '1.4',
       },
 
-      // ─── Motion ──────────────────────────────────────────────────────
+      // ─── Motion ────────────────────────────────────────────────
       transitionTimingFunction: {
         // MASTER.md easing — expo-out for entrances
         expo: 'cubic-bezier(0.16, 1, 0.3, 1)',
@@ -148,11 +148,31 @@ const config: Config = {
           '0%': { transform: 'translateY(8px)', opacity: '0' },
           '100%': { transform: 'translateY(0)', opacity: '1' },
         },
+        // Used for the onboarding welcome hero — the logo scales
+        // up from 92% with the same expo-out easing as enter-up.
+        'enter-scale': {
+          '0%': { transform: 'scale(0.92)', opacity: '0' },
+          '100%': { transform: 'scale(1)', opacity: '1' },
+        },
+        'fade-in': {
+          '0%': { opacity: '0' },
+          '100%': { opacity: '1' },
+        },
+        // Onboarding "ready" step — a soft concentric-ring bloom.
+        // Runs once, 900ms, expo-out. Respects prefers-reduced-motion.
+        'ring-bloom': {
+          '0%': { transform: 'scale(0.6)', opacity: '0' },
+          '60%': { opacity: '0.9' },
+          '100%': { transform: 'scale(1.2)', opacity: '0' },
+        },
       },
       animation: {
         // 18s cycle per MASTER.md "12-20s" range
         blob: 'blob 18s cubic-bezier(0.4, 0, 0.6, 1) infinite',
         'enter-up': 'enter-up 280ms cubic-bezier(0.16, 1, 0.3, 1) both',
+        'enter-scale': 'enter-scale 420ms cubic-bezier(0.16, 1, 0.3, 1) both',
+        'fade-in': 'fade-in 280ms cubic-bezier(0.16, 1, 0.3, 1) both',
+        'ring-bloom': 'ring-bloom 900ms cubic-bezier(0.16, 1, 0.3, 1) both',
       },
     },
   },
