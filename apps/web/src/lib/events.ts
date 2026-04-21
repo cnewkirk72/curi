@@ -179,6 +179,61 @@ export async function getUpcomingEvents({
     query = query.overlaps('vibes', filters.vibes);
   }
 
+  // Subgenre filter. Events don't carry subgenres directly — they
+  // inherit them through their artist lineup via `artists.subgenres`.
+  // We resolve that in two lightweight queries rather than an RPC
+  // or a joined embedded filter:
+  //
+  //   (1) find artist_ids whose subgenres[] overlaps the filter
+  //   (2) find event_ids in event_artists where artist_id ∈ (1)
+  //   (3) constrain the main query with `.in('id', eventIds)`
+  //
+  // Costs an extra round-trip but keeps the main feed query simple,
+  // and both helper queries hit the `artists_subgenres_gin` index
+  // from migration 0003. If this becomes hot, the next step is a
+  // trigger-maintained `events.subgenres text[]` column + GIN index,
+  // collapsing back to a single query.
+  if (filters.subgenres.length > 0) {
+    const { data: artistRows, error: artistErr } = await supabase
+      .from('artists')
+      .select('id')
+      .overlaps('subgenres', filters.subgenres);
+
+    if (artistErr) {
+      // eslint-disable-next-line no-console
+      console.error(
+        '[events] subgenre artist lookup failed:',
+        artistErr.message,
+      );
+      return [];
+    }
+    const artistIds = (artistRows ?? []).map(
+      (r) => (r as { id: string }).id,
+    );
+    if (artistIds.length === 0) return [];
+
+    const { data: linkRows, error: linkErr } = await supabase
+      .from('event_artists')
+      .select('event_id')
+      .in('artist_id', artistIds);
+
+    if (linkErr) {
+      // eslint-disable-next-line no-console
+      console.error(
+        '[events] subgenre event-artist lookup failed:',
+        linkErr.message,
+      );
+      return [];
+    }
+    const eventIds = Array.from(
+      new Set(
+        (linkRows ?? []).map((r) => (r as { event_id: string }).event_id),
+      ),
+    );
+    if (eventIds.length === 0) return [];
+    query = query.in('id', eventIds);
+  }
+
   const { data, error } = await query
     .order('starts_at', { ascending: true })
     .limit(limit);

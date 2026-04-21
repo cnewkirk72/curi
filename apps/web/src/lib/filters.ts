@@ -10,7 +10,7 @@
 
 import { nycDayKey } from './format';
 
-// ── Types ────────────────────────────────────────────────────────
+// ── Types ─────────────────────────────────────────────────
 
 export type DateFilter = 'all' | 'tonight' | 'tomorrow' | 'weekend' | 'week';
 
@@ -18,15 +18,32 @@ export type FilterState = {
   when: DateFilter;
   genres: string[];
   vibes: string[];
+  /**
+   * Subgenre slugs selected under the currently-active parent genres.
+   * These filter the feed via `artists.subgenres` overlap (see
+   * `lib/events.ts` — events don't carry subgenres directly; we
+   * resolve through event_artists → artists).
+   *
+   * Invariant: when a parent genre is deselected, any subgenres
+   * registered to that parent are also cleared. The filter sheet
+   * enforces this on toggle; `parseFilters` does NOT re-enforce it,
+   * so a hand-crafted URL can technically keep `?subgenres=` without
+   * its parent — the feed query just won't return anything for
+   * orphaned subgenres (no parent means no overlap constraint
+   * widening). That's fine for correctness; we don't try to fix
+   * hand-crafted URLs.
+   */
+  subgenres: string[];
 };
 
 export const EMPTY_FILTERS: FilterState = {
   when: 'all',
   genres: [],
   vibes: [],
+  subgenres: [],
 };
 
-// ── URL ↔ FilterState ────────────────────────────────────────────
+// ── URL ↔ FilterState ─────────────────────────────────────────
 
 // `URLSearchParams` (server page props) and `ReadonlyURLSearchParams`
 // (Next's client hook) share `.get()`, which is all we read — so we
@@ -52,6 +69,15 @@ export function parseFilters(sp: ParamsLike): FilterState {
       .split(',')
       .map((s) => s.trim().toLowerCase())
       .filter(Boolean),
+    // Subgenres are stored as-is rather than lowercased/dashed because
+    // the underlying `artists.subgenres` values are inconsistent —
+    // some hyphenated (`hard-techno`), some space-separated
+    // (`dark techno`). We match the DB strings byte-for-byte on the
+    // filter overlap, so URL normalization stops at trim + filter.
+    subgenres: (sp.get('subgenres') ?? '')
+      .split(',')
+      .map((s) => decodeURIComponent(s).trim())
+      .filter(Boolean),
   };
 }
 
@@ -65,22 +91,29 @@ export function serializeFilters(state: FilterState): string {
   if (state.when !== 'all') params.set('when', state.when);
   if (state.genres.length) params.set('genres', state.genres.join(','));
   if (state.vibes.length) params.set('vibes', state.vibes.join(','));
+  if (state.subgenres.length) params.set('subgenres', state.subgenres.join(','));
   return params.toString();
 }
 
 export function hasActiveFilters(state: FilterState): boolean {
   return (
-    state.when !== 'all' || state.genres.length > 0 || state.vibes.length > 0
+    state.when !== 'all' ||
+    state.genres.length > 0 ||
+    state.vibes.length > 0 ||
+    state.subgenres.length > 0
   );
 }
 
 export function activeFilterCount(state: FilterState): number {
   return (
-    (state.when !== 'all' ? 1 : 0) + state.genres.length + state.vibes.length
+    (state.when !== 'all' ? 1 : 0) +
+    state.genres.length +
+    state.vibes.length +
+    state.subgenres.length
   );
 }
 
-// ── Curated option lists ────────────────────────────────────────
+// ── Curated option lists ──────────────────────────────────────
 //
 // Grounded in the tags that actually appear in supabase/seed.sql
 // and the 2b ingestion output. A proper "show me the long tail"
@@ -126,6 +159,111 @@ export const DATE_OPTIONS: { slug: DateFilter; label: string }[] = [
   { slug: 'week', label: 'This week' },
 ];
 
+// ── Subgenres (Phase 5.4) ─────────────────────────────────────
+//
+// Curated map from parent-genre slug → recognizable subgenres. The
+// slugs here match the raw strings stored in `artists.subgenres[]`
+// byte-for-byte (that's what the feed query overlaps on), which is
+// why some are hyphenated (`hard-techno`) and some are space-
+// separated (`dark techno`) — we match whatever the taxonomy ingest
+// actually wrote.
+//
+// Curation rationale — I picked entries that satisfy ALL of:
+//   (1) ≥10 artists carry that subgenre today (meaningful recall)
+//   (2) read as a coherent electronic-music subgenre (strips noise
+//       like `indie-rock`, `dance-pop`, `alternative rock` that
+//       leaked through MusicBrainz tags)
+//   (3) aren't the parent genre itself (no `techno` under techno)
+//
+// Parents omitted from the map (jungle, dnb, downtempo) have no
+// subgenres today because the ingest data for those families is
+// sparse — a user selecting those sees the empty state "no
+// subgenres yet" in the picker instead of a broken chip row.
+//
+// If this list ever feels stale, regenerate by scanning
+// `select unnest(subgenres) from public.artists` and re-curating.
+export const SUBGENRES_BY_PARENT: Record<string, FilterOption[]> = {
+  techno: [
+    { slug: 'hard-techno', label: 'Hard' },
+    { slug: 'dark techno', label: 'Dark' },
+    { slug: 'melodic techno', label: 'Melodic' },
+    { slug: 'deep techno', label: 'Deep' },
+    { slug: 'experimental techno', label: 'Experimental' },
+    { slug: 'dub-techno', label: 'Dub' },
+    { slug: 'acid techno', label: 'Acid' },
+    { slug: 'hardgroove techno', label: 'Hardgroove' },
+    { slug: 'minimal', label: 'Minimal' },
+  ],
+  house: [
+    { slug: 'tech-house', label: 'Tech House' },
+    { slug: 'afro-house', label: 'Afro House' },
+    { slug: 'melodic house', label: 'Melodic House' },
+    { slug: 'disco-house', label: 'Disco House' },
+    { slug: 'soul-house', label: 'Soulful House' },
+    { slug: 'progressive house', label: 'Progressive' },
+    { slug: 'latin house', label: 'Latin House' },
+    { slug: 'organic house', label: 'Organic' },
+    { slug: 'garage house', label: 'Garage House' },
+    { slug: 'ballroom house', label: 'Ballroom' },
+    { slug: 'chicago-house', label: 'Chicago' },
+    { slug: 'left-field house', label: 'Left-Field' },
+    { slug: 'ghetto house', label: 'Ghetto' },
+    { slug: 'lo-fi house', label: 'Lo-Fi' },
+  ],
+  'deep-house': [
+    // Deep house is already a canonical parent in GENRE_OPTIONS; this
+    // sub-list is intentionally narrow — if someone wants general
+    // house subgenres they should select the House parent.
+    { slug: 'soulful-house', label: 'Soulful' },
+    { slug: 'deep tech', label: 'Deep Tech' },
+  ],
+  disco: [
+    { slug: 'nu disco', label: 'Nu Disco' },
+    { slug: 'italo-disco', label: 'Italo' },
+  ],
+  electro: [
+    { slug: 'indie dance', label: 'Indie Dance' },
+  ],
+  garage: [
+    { slug: 'two-step-garage', label: 'Two-Step' },
+    { slug: 'uk bass', label: 'UK Bass' },
+  ],
+  dubstep: [
+    { slug: 'uk bass', label: 'UK Bass' },
+    { slug: 'bass', label: 'Bass' },
+  ],
+  ambient: [
+    { slug: 'ambient electronic', label: 'Electronic' },
+    { slug: 'dark-ambient', label: 'Dark' },
+    { slug: 'drone ambient', label: 'Drone' },
+  ],
+  breakbeat: [
+    { slug: 'breaks', label: 'Breaks' },
+    { slug: 'jersey-club', label: 'Jersey Club' },
+    { slug: 'footwork', label: 'Footwork' },
+  ],
+  // Families without curated subgenres yet (sparse ingest data):
+  // dnb, jungle, downtempo.
+};
+
+/** Subgenre options available for a single parent. Empty array if
+ * the parent has no curated subgenres. */
+export function subgenresForParent(parentSlug: string): FilterOption[] {
+  return SUBGENRES_BY_PARENT[parentSlug] ?? [];
+}
+
+/** Has at least one curated subgenre — drives whether the picker
+ * bothers rendering a sub-row for this parent. */
+export function parentHasSubgenres(parentSlug: string): boolean {
+  return (SUBGENRES_BY_PARENT[parentSlug]?.length ?? 0) > 0;
+}
+
+/** All curated subgenre slugs, flattened. Used by the upsert-prefs
+ * server action's sanitize() to validate the writeable vocabulary. */
+export const ALL_SUBGENRE_SLUGS: string[] = Array.from(
+  new Set(Object.values(SUBGENRES_BY_PARENT).flatMap((opts) => opts.map((o) => o.slug))),
+);
+
 export function labelForGenre(slug: string): string {
   return GENRE_OPTIONS.find((o) => o.slug === slug)?.label ?? slug;
 }
@@ -138,7 +276,19 @@ export function labelForWhen(slug: DateFilter): string {
   return DATE_OPTIONS.find((o) => o.slug === slug)?.label ?? slug;
 }
 
-// ── Date window math (NYC-aware) ─────────────────────────────────
+/** Display label for a subgenre slug. Used in active-filter chips.
+ * First match across all parents wins — subgenres like `uk bass`
+ * that live under multiple parents will render the same label
+ * regardless of which parent surfaced it. */
+export function labelForSubgenre(slug: string): string {
+  for (const opts of Object.values(SUBGENRES_BY_PARENT)) {
+    const hit = opts.find((o) => o.slug === slug);
+    if (hit) return hit.label;
+  }
+  return slug;
+}
+
+// ── Date window math (NYC-aware) ───────────────────────────────────
 //
 // We treat "the day" as running 4am NYC → next 4am NYC, not midnight
 // → midnight. A club night starting at 11pm Fri spills into 3am Sat

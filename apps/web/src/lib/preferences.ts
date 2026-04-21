@@ -12,10 +12,25 @@
 
 import { createClient } from '@/lib/supabase/server';
 
+/** Allowed values for the `default_when` column (migration 0014).
+ *  Intentionally narrower than the URL-level DateFilter in filters.ts:
+ *  'all' doesn't persist (it's the fallback) and 'tomorrow' is too
+ *  transient to set as a default home window. */
+export type DefaultWhen = 'weekend' | 'tonight' | 'week' | null;
+
 export type UserPrefs = {
   preferred_genres: string[];
   preferred_vibes: string[];
+  preferred_subgenres: string[];
   digest_email: boolean;
+  default_when: DefaultWhen;
+  notify_artist_drops: boolean;
+  location_opt_in: boolean;
+  calendar_opt_in: boolean;
+  /** Null until the user finishes /onboarding. Set once by
+   *  completeOnboarding in onboarding/actions.ts. Read by the
+   *  middleware gate in Phase 5.6 / Task #6. */
+  onboarding_completed_at: string | null;
 };
 
 /** Shape used when the viewer hasn't saved prefs yet, or is
@@ -24,7 +39,13 @@ export type UserPrefs = {
 export const DEFAULT_PREFS: UserPrefs = {
   preferred_genres: [],
   preferred_vibes: [],
+  preferred_subgenres: [],
   digest_email: false,
+  default_when: null,
+  notify_artist_drops: false,
+  location_opt_in: false,
+  calendar_opt_in: false,
+  onboarding_completed_at: null,
 };
 
 /**
@@ -40,7 +61,9 @@ export async function getUserPrefs(): Promise<UserPrefs> {
   const supabase = createClient();
   const { data, error } = await supabase
     .from('user_prefs')
-    .select('preferred_genres, preferred_vibes, digest_email')
+    .select(
+      'preferred_genres, preferred_vibes, preferred_subgenres, digest_email, default_when, notify_artist_drops, location_opt_in, calendar_opt_in, onboarding_completed_at',
+    )
     .maybeSingle();
 
   if (error) {
@@ -58,6 +81,17 @@ export async function getUserPrefs(): Promise<UserPrefs> {
   return {
     preferred_genres: row.preferred_genres ?? [],
     preferred_vibes: row.preferred_vibes ?? [],
+    preferred_subgenres: row.preferred_subgenres ?? [],
     digest_email: !!row.digest_email,
+    default_when:
+      row.default_when === 'weekend' ||
+      row.default_when === 'tonight' ||
+      row.default_when === 'week'
+        ? row.default_when
+        : null,
+    notify_artist_drops: !!row.notify_artist_drops,
+    location_opt_in: !!row.location_opt_in,
+    calendar_opt_in: !!row.calendar_opt_in,
+    onboarding_completed_at: row.onboarding_completed_at ?? null,
   };
 }
