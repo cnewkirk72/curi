@@ -30,7 +30,7 @@ import {
   VIBE_OPTIONS,
 } from '@/lib/filters';
 
-// ── Allowlists ───────────────────────────────────────────────────
+// ── Allowlists ───────────────────────────────────
 
 const GENRE_SLUGS = new Set(GENRE_OPTIONS.map((o) => o.slug));
 const VIBE_SLUGS = new Set(VIBE_OPTIONS.map((o) => o.slug));
@@ -56,7 +56,7 @@ function sanitize(values: unknown, allowed: Set<string>): string[] {
   return out;
 }
 
-// ── Core upsert helper ─────────────────────────────────────────────
+// ── Core upsert helper ───────────────────────────────
 //
 // Each step-level action ends up calling this with a partial patch.
 // Using a single upsert path (rather than per-field UPDATEs) gives us
@@ -87,7 +87,7 @@ async function upsertPrefs(
   return { ok: true };
 }
 
-// ── Step actions ─────────────────────────────────────────────────────
+// ── Step actions ─────────────────────────────────────
 
 /** Step 3 — genres. Valid slugs persisted; unknowns dropped. */
 export async function saveOnboardingGenres(genres: string[]): Promise<Result> {
@@ -135,10 +135,9 @@ export async function saveOnboardingWhen(input: {
 /**
  * Final step — stamp onboarding_completed_at = now. This is what the
  * middleware gate reads to decide "already onboarded → don't bounce".
- * We also revalidate `/events` and `/profile` here since the feed
- * biases off preferred_genres/subgenres/vibes and the profile page
- * renders the saved lists. `/` is revalidated for good measure in
- * case the root redirects into the feed.
+ * We revalidate `/` (the feed lives at root) and `/profile` since the
+ * feed biases off preferred_genres/subgenres/vibes and the profile
+ * page renders the saved lists.
  */
 export async function completeOnboarding(): Promise<Result> {
   const result = await upsertPrefs({
@@ -146,7 +145,6 @@ export async function completeOnboarding(): Promise<Result> {
   });
   if (result.ok) {
     revalidatePath('/');
-    revalidatePath('/events');
     revalidatePath('/profile');
   }
   return result;

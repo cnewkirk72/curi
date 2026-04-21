@@ -8,7 +8,7 @@
 // Routing rules (Task #6):
 //   - Unfinished onboarding (no stamp on user_prefs) → /onboarding
 //   - Completed onboarding + `next` param             → $next
-//   - Completed onboarding, no `next`                 → /events
+//   - Completed onboarding, no `next`                 → / (feed)
 //
 // The middleware gate (lib/supabase/middleware.ts) would catch any
 // un-onboarded user bouncing through here even if we didn't branch —
@@ -29,8 +29,9 @@ export async function GET(request: Request) {
 
   // `next` lets us deep-link through sign-in (e.g. user taps "Save" on
   // an event while logged out → /login?next=/events/abc → back to that
-  // event after auth). Absence falls back to /events for onboarded
-  // users; un-onboarded users always go to /onboarding regardless.
+  // event after auth). Absence falls back to `/` (the feed) for
+  // onboarded users; un-onboarded users always go to /onboarding
+  // regardless.
   const next = searchParams.get('next');
 
   if (code) {
@@ -63,8 +64,8 @@ export async function GET(request: Request) {
       }
 
       // Returning user with a stamped completion — honor the deep-link
-      // intent if any, otherwise land on the feed.
-      return NextResponse.redirect(`${origin}${next ?? '/events'}`);
+      // intent if any, otherwise land on the feed (which is `/`).
+      return NextResponse.redirect(`${origin}${next ?? '/'}`);
     }
   }
 

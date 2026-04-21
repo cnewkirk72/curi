@@ -57,10 +57,11 @@ export default async function OnboardingPage() {
     ]);
 
     if (fetchedPrefs.onboarding_completed_at) {
-      // Already done — send them to the feed. A future "re-run
-      // onboarding" entry from Profile could special-case a
-      // `?force=1` param here, but we don't support that yet.
-      redirect('/events');
+      // Already done — send them to the feed (which lives at `/`).
+      // A future "re-run onboarding" entry from Profile could
+      // special-case a `?force=1` param here, but we don't
+      // support that yet.
+      redirect('/');
     }
 
     prefs = fetchedPrefs;

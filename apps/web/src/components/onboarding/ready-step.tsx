@@ -55,7 +55,7 @@ export function ReadyStep({ displayName }: Props) {
   }, []);
 
   function goToFeed() {
-    router.push('/events');
+    router.push('/');
   }
 
   function retry() {
@@ -136,7 +136,7 @@ export function ReadyStep({ displayName }: Props) {
   );
 }
 
-// ── Ring ─────────────────────────────────────────────────────────────
+// ── Ring ─────────────────────────────────────────
 
 function Ring({ delay }: { delay: number }) {
   return (
