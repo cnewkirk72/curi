@@ -481,14 +481,35 @@ async function commitArtist(
  * attempted, so the commit layer can distinguish "null because skipped"
  * from "null because no match" (the latter sets
  * spotify_discovery_failed_at, the former doesn't).
+ *
+ * Hard 15s timeout: native fetch has no default timeout, so a stalled
+ * TCP/DNS or a cooldown-capped retry-loop could otherwise freeze the
+ * orchestrator. After 15s we abandon the Spotify attempt and let the
+ * LLM+Firecrawl layer do its thing.
  */
+const SPOTIFY_LOOKUP_TIMEOUT_MS = 15_000;
+
 async function safeSpotifyLookup(
   name: string,
   skip: boolean,
 ): Promise<{ match: SpotifyArtistMatch | null; attempted: boolean }> {
   if (skip) return { match: null, attempted: false };
   try {
-    const match = await searchArtistOnSpotify(name);
+    const timeout = new Promise<never>((_, reject) =>
+      setTimeout(
+        () =>
+          reject(
+            new Error(
+              `spotify lookup exceeded ${SPOTIFY_LOOKUP_TIMEOUT_MS}ms timeout`,
+            ),
+          ),
+        SPOTIFY_LOOKUP_TIMEOUT_MS,
+      ),
+    );
+    const match = await Promise.race([
+      searchArtistOnSpotify(name),
+      timeout,
+    ]);
     return { match, attempted: true };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

@@ -149,6 +149,14 @@ async function spotifyFetch<T>(path: string): Promise<T> {
         res.headers.get('retry-after') ?? '5',
         10,
       );
+      // Cap at 30s — if Spotify wants longer (sometimes 20+ hours when
+      // Client Credentials quota is burned), abort this artist with a
+      // surfaced error rather than freezing the orchestrator per row.
+      if (retryAfter > 30) {
+        throw new Error(
+          `spotify rate-limited with retry-after=${retryAfter}s on ${path} — aborting artist`,
+        );
+      }
       await new Promise((r) => setTimeout(r, (retryAfter + 1) * 1000));
       continue;
     }
