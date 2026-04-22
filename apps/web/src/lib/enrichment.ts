@@ -20,6 +20,7 @@
 type EnrichableEvent = {
   image_url: string | null;
   lineup: Array<{
+    is_headliner: boolean;
     spotify_url: string | null;
     spotify_popularity: number | null;
     soundcloud_url: string | null;
@@ -30,16 +31,10 @@ type EnrichableEvent = {
 };
 
 /**
- * How much popularity outweighs completeness in the final score. Bumped
- * from 1 → 3 after shipping the initial sort — feedback was that the feed
- * didn't lean hard enough on actually-popular acts. With this weight,
- * a 3-artist event with modest-to-good popularity data lands ~10x
- * higher than an event that's merely "has all the fields filled in."
- *
- * Completeness still matters: it's a tiebreaker for events where we have
- * no popularity signal (fresh scrapes, niche artists Spotify never heard
- * of), and its +5 hero-image bonus keeps image-backed events above
- * otherwise-equivalent text-only ones.
+ * How much popularity outweighs completeness in the final score. With
+ * popularity derived from the TOP act (not summed), the range of the
+ * popularity term is bounded — a log2 of 1M followers is ~40 — so the
+ * weight here is what makes it dominate the flat completeness bonus.
  *
  * Single top-level dial by design: the internal balance between
  * spotify_popularity (raw) and follower log2-scaling was tuned
@@ -47,6 +42,14 @@ type EnrichableEvent = {
  * overall weight shifts.
  */
 const POPULARITY_WEIGHT = 3;
+
+/**
+ * Bonus applied to an artist's popularity when `is_headliner` is set.
+ * Small enough that a non-headliner with meaningfully more followers
+ * still wins, large enough that an advertised top-of-the-bill pulls
+ * ahead of a similarly-sized support act.
+ */
+const HEADLINER_BOOST = 1.25;
 
 /**
  * "How enriched is this event?" — a hybrid signal used to sort events
@@ -61,38 +64,54 @@ const POPULARITY_WEIGHT = 3;
  * of each day.
  *
  * Scoring components:
- *   - completeness: +10 per lineup artist with any streaming link
- *     (spotify / soundcloud / bandcamp), +5 if the event has a hero
- *     image. For a typical 3-artist well-enriched event, ~35.
- *   - popularity (× POPULARITY_WEIGHT): `spotify_popularity` summed raw
- *     (0–100/artist), plus a log-scaled contribution from soundcloud +
- *     bandcamp follower counts (`log2(1 + followers) * 2`) so a viral
- *     100k-follower act doesn't completely drown out a solid 2k one.
+ *   - completeness (flat): +10 if the event has at least one artist
+ *     with a streaming link, +5 if there's a hero image. Deliberately
+ *     NOT count-based — the previous "× number of artists" formulation
+ *     structurally favored 9-DJ warehouse bills over 2-DJ star-led
+ *     nights, which is the opposite of what we want.
+ *   - popularity (× POPULARITY_WEIGHT): MAX over the lineup of each
+ *     artist's own popularity score. Per-artist popularity is
+ *     `spotify_popularity` (raw 0–100, currently dead in DB — see note
+ *     below) + log-scaled soundcloud + bandcamp follower contributions,
+ *     multiplied by HEADLINER_BOOST if the artist is billed as
+ *     headliner. Using MAX rather than SUM means one major act
+ *     outranks a long bill of mid-tier acts, which matches how
+ *     people actually think about "is this show big."
  *
- * Note: this mutates nothing and reads only the structural fields
+ * Note on `spotify_popularity`: Spotify's Nov-2024 API policy change
+ * dropped `popularity`, `followers`, and `genres` from /artists/{id}
+ * responses for apps without Extended Quota Mode. Every Spotify-linked
+ * artist in the DB has popularity = 0 as a result. We keep the term in
+ * the formula so that if we ever backfill from Last.fm (or manually
+ * tier known names), the scoring picks it up automatically — but today
+ * the actual signal comes entirely from soundcloud + bandcamp.
+ *
+ * This function mutates nothing and reads only the structural fields
  * above, so it's safe to call during render.
  */
 export function enrichmentScore(event: EnrichableEvent): number {
   const lineup = event.lineup;
 
-  const artistsWithAnyLink = lineup.filter(
+  const hasAnyLink = lineup.some(
     (a) =>
       a.spotify_url !== null ||
       a.soundcloud_url !== null ||
       a.bandcamp_url !== null,
-  ).length;
-  const completeness = artistsWithAnyLink * 10 + (event.image_url ? 5 : 0);
+  );
+  const completeness = (hasAnyLink ? 10 : 0) + (event.image_url ? 5 : 0);
 
-  let popularity = 0;
+  let topArtistPop = 0;
   for (const a of lineup) {
-    popularity += a.spotify_popularity ?? 0;
+    let pop = a.spotify_popularity ?? 0;
     if (a.soundcloud_followers) {
-      popularity += Math.log2(1 + a.soundcloud_followers) * 2;
+      pop += Math.log2(1 + a.soundcloud_followers) * 2;
     }
     if (a.bandcamp_followers) {
-      popularity += Math.log2(1 + a.bandcamp_followers) * 2;
+      pop += Math.log2(1 + a.bandcamp_followers) * 2;
     }
+    if (a.is_headliner) pop *= HEADLINER_BOOST;
+    if (pop > topArtistPop) topArtistPop = pop;
   }
 
-  return completeness + popularity * POPULARITY_WEIGHT;
+  return completeness + topArtistPop * POPULARITY_WEIGHT;
 }
