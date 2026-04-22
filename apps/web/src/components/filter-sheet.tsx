@@ -15,12 +15,13 @@
 
 import { Fragment, useEffect, useMemo, useState, useTransition } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
-import { X } from 'lucide-react';
+import { CalendarRange, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
   DATE_OPTIONS,
   GENRE_OPTIONS,
   VIBE_OPTIONS,
+  labelForDateRange,
   parentHasSubgenres,
   serializeFilters,
   subgenresForParent,
@@ -30,6 +31,7 @@ import {
 } from '@/lib/filters';
 import { getSubgenresByParent } from '@/lib/taxonomy';
 import { SubgenrePicker } from '@/components/subgenre-picker';
+import { DatePicker, nycTodayDayKey, type SingleValue } from '@/components/date-picker';
 
 type Props = {
   open: boolean;
@@ -86,7 +88,36 @@ export function FilterSheet({ open, onClose, initialFilters }: Props) {
   }
 
   function clearAll() {
-    setDraft({ when: 'all', genres: [], vibes: [], subgenres: [] });
+    setDraft({
+      when: 'all',
+      date_from: null,
+      date_to: null,
+      genres: [],
+      vibes: [],
+      subgenres: [],
+    });
+  }
+
+  // Custom date <-> preset handoff.
+  //   Picking a preset clears the custom date; picking a specific day
+  //   sets when='custom' with date_from = day / date_to = null (open-
+  //   ended "from X onward") and clears the preset. Either action is
+  //   one-way — no ambiguous "both set" state.
+  function selectPreset(slug: Exclude<DateFilter, 'custom'>) {
+    setDraft((d) => ({ ...d, when: slug, date_from: null, date_to: null }));
+  }
+  function onDateChange(value: SingleValue) {
+    if (!value) {
+      // Cleared from inside the picker (re-tap of the selected day).
+      setDraft((d) => ({ ...d, when: 'all', date_from: null, date_to: null }));
+      return;
+    }
+    setDraft((d) => ({
+      ...d,
+      when: 'custom',
+      date_from: value,
+      date_to: null,
+    }));
   }
 
   // Toggling a parent genre cascades to its subgenres: if the
@@ -117,6 +148,11 @@ export function FilterSheet({ open, onClose, initialFilters }: Props) {
   // the curated table is static, so memoization keeps us from
   // re-allocating the Map on every open/toggle.
   const subgenresByParent = useMemo(() => getSubgenresByParent(), []);
+  // NYC today, computed once per sheet mount. Safe to freeze — the
+  // sheet's lifetime is shorter than a day boundary in any realistic
+  // session.
+  const todayDayKey = useMemo(() => nycTodayDayKey(), []);
+  const rangeLabel = labelForDateRange(draft);
 
   return (
     <>
@@ -168,21 +204,34 @@ export function FilterSheet({ open, onClose, initialFilters }: Props) {
           {/* Scrollable body — capped at ~70vh so the Apply/Clear row
               never scrolls out of reach on short phones. */}
           <div className="max-h-[70dvh] space-y-6 overflow-y-auto px-5 pb-4 pt-2">
-            {/* When */}
+            {/* When — presets + optional custom range picker. The
+                range picker is collapsed behind a disclosure on mobile
+                to keep the sheet short; expanding it swaps `when` to
+                'custom' and the preset pills go inactive. */}
             <Section label="When">
               <div className="flex flex-wrap gap-2">
                 {DATE_OPTIONS.map((opt) => (
                   <SingleSelectPill
                     key={opt.slug}
                     active={draft.when === opt.slug}
-                    onClick={() =>
-                      setDraft((d) => ({ ...d, when: opt.slug as DateFilter }))
-                    }
+                    onClick={() => selectPreset(opt.slug)}
                   >
                     {opt.label}
                   </SingleSelectPill>
                 ))}
               </div>
+
+              {/* Custom date disclosure. When a custom date is already
+                  set we render the picker expanded by default so the
+                  user can see what they chose. Otherwise we start
+                  collapsed and let them tap to expand. */}
+              <CustomDateDisclosure
+                expanded={draft.when === 'custom'}
+                rangeLabel={rangeLabel}
+                value={draft.date_from}
+                todayDayKey={todayDayKey}
+                onChange={onDateChange}
+              />
             </Section>
 
             {/* Genre + inline Subgenre picker.
@@ -359,6 +408,70 @@ function OptionGrid({
           </button>
         );
       })}
+    </div>
+  );
+}
+
+// Custom-date disclosure + inline DatePicker.
+// The picker is lazily revealed (click-to-expand) rather than always
+// on display; a typical mobile user picks a preset ("Tonight") more
+// often than a specific date, so we don't want the picker eating
+// vertical space by default.
+function CustomDateDisclosure({
+  expanded,
+  rangeLabel,
+  value,
+  todayDayKey,
+  onChange,
+}: {
+  expanded: boolean;
+  rangeLabel: string | null;
+  value: string | null;
+  todayDayKey: string;
+  onChange: (v: SingleValue) => void;
+}) {
+  const [open, setOpen] = useState(expanded);
+  // Re-sync if the parent flipped `when=custom` after mount (e.g. a
+  // hand-crafted URL landed already-custom) — we want the picker
+  // visible so the user sees what's selected.
+  useEffect(() => {
+    if (expanded) setOpen(true);
+  }, [expanded]);
+
+  return (
+    <div className="mt-3">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        className={cn(
+          'inline-flex items-center gap-1.5 rounded-pill border px-3 py-1 text-[11px] font-medium',
+          'transition duration-micro ease-expo',
+          expanded
+            ? 'border-accent/40 bg-accent-chip text-accent'
+            : 'border-border bg-bg-elevated text-fg-muted hover:text-fg-primary',
+        )}
+      >
+        <CalendarRange className="h-3 w-3" />
+        {rangeLabel ?? 'Pick a specific date'}
+      </button>
+
+      {open && (
+        <div className="mt-3 animate-fade-in">
+          <DatePicker
+            mode="single"
+            value={value}
+            onChange={onChange}
+            todayDayKey={todayDayKey}
+            minDate={todayDayKey}
+            ariaLabel="Pick a specific date"
+            className="mx-auto"
+          />
+          <p className="mt-2 text-center text-[11px] text-fg-dim">
+            Tap a day to filter the feed from that date onward.
+          </p>
+        </div>
+      )}
     </div>
   );
 }
