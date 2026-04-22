@@ -16,6 +16,9 @@
 //   empty_enrichment_attempted  — last_enriched_at set but arrays empty (re-queue)
 //   punctuation_artifacts       — leading/trailing/doubled punct → propose rename
 //   duplicate_events            — same venue + same day + fuzzy title (merge)
+//   spotify_protected           — would classify as non_artist but has a
+//                                 Spotify match at popularity ≥ 20, i.e.
+//                                 real streaming signal — human review only
 //
 // Usage:
 //   pnpm --filter @curi/ingestion audit [--output <path>] [--verbose]
@@ -83,8 +86,23 @@ interface ArtistRow {
   vibes: string[] | null;
   soundcloud_url: string | null;
   bandcamp_url: string | null;
+  spotify_url: string | null;
+  spotify_popularity: number | null;
   last_enriched_at: string | null;
 }
+
+/**
+ * Phase 4f.9 — Tier-2 safety net for the expanded event-title classifier.
+ *
+ * The classifier in artist-parsing.ts is intentionally aggressive (plural
+ * weekdays, "dance party", "boat party", etc.) so the audit can scoop up
+ * pollution in one pass. A rule tight enough to be safe forever would also
+ * miss a lot. The backstop: if Spotify matched this artist with meaningful
+ * streaming signal (popularity ≥ SPOTIFY_PROTECT_MIN_POP), we don't delete —
+ * we route to `spotify_protected` for human review. pop=0 garbage matches
+ * are not protected; real human artists with ≥ 20 popularity are.
+ */
+const SPOTIFY_PROTECT_MIN_POP = 20;
 
 interface EventRow {
   id: string;
@@ -102,7 +120,7 @@ async function loadArtists(): Promise<ArtistRow[]> {
     const { data, error } = await client
       .from('artists')
       .select(
-        'id, name, slug, genres, subgenres, vibes, soundcloud_url, bandcamp_url, last_enriched_at',
+        'id, name, slug, genres, subgenres, vibes, soundcloud_url, bandcamp_url, spotify_url, spotify_popularity, last_enriched_at',
       )
       .order('id', { ascending: true })
       .range(off, off + PAGE_SIZE - 1);
@@ -197,6 +215,7 @@ async function main(): Promise<void> {
   console.log(`  ${events.length} events`);
 
   const nonArtistNames: Array<{ id: string; name: string; reason: ClassifyReason; event_count: number }> = [];
+  const spotifyProtected: Array<{ id: string; name: string; reason: ClassifyReason; event_count: number; spotify_popularity: number; spotify_url: string }> = [];
   const nameLength: Array<{ id: string; name: string; reason: 'too_short' | 'too_long'; event_count: number }> = [];
   const orphansEmpty: Array<{ id: string; name: string }> = [];
   const orphansEnriched: Array<{ id: string; name: string; genres: string[]; subgenres: string[] }> = [];
@@ -209,7 +228,23 @@ async function main(): Promise<void> {
     const classify = classifyArtistName(a.name);
 
     if (!classify.valid && (classify.reason === 'noise' || classify.reason === 'event_title')) {
-      nonArtistNames.push({ id: a.id, name: a.name, reason: classify.reason, event_count: eventCount });
+      // Tier-2 Spotify-confidence bypass. Popularity ≥ 20 + a spotify_url
+      // means this row has real listener signal — it's almost certainly a
+      // human artist whose name happens to match an event-descriptor pattern.
+      // Route to manual review instead of deletion.
+      const pop = a.spotify_popularity ?? 0;
+      if (pop >= SPOTIFY_PROTECT_MIN_POP && a.spotify_url) {
+        spotifyProtected.push({
+          id: a.id,
+          name: a.name,
+          reason: classify.reason,
+          event_count: eventCount,
+          spotify_popularity: pop,
+          spotify_url: a.spotify_url,
+        });
+      } else {
+        nonArtistNames.push({ id: a.id, name: a.name, reason: classify.reason, event_count: eventCount });
+      }
     }
 
     if (!classify.valid && (classify.reason === 'too_short' || classify.reason === 'too_long')) {
@@ -320,6 +355,7 @@ async function main(): Promise<void> {
     },
     summary: {
       non_artist_names: { count: nonArtistNames.length, action: 'delete' },
+      spotify_protected: { count: spotifyProtected.length, action: 'manual_review' },
       name_length: { count: nameLength.length, action: 'delete' },
       orphans_empty: { count: orphansEmpty.length, action: 'flag' },
       orphans_enriched: { count: orphansEnriched.length, action: 'keep' },
@@ -331,6 +367,7 @@ async function main(): Promise<void> {
     },
     categories: {
       non_artist_names: { count: nonArtistNames.length, action: 'delete', rows: nonArtistNames },
+      spotify_protected: { count: spotifyProtected.length, action: 'manual_review', rows: spotifyProtected },
       name_length: { count: nameLength.length, action: 'delete', rows: nameLength },
       orphans_empty: { count: orphansEmpty.length, action: 'flag', rows: orphansEmpty },
       orphans_enriched: { count: orphansEnriched.length, action: 'keep', rows: orphansEnriched },
@@ -364,6 +401,10 @@ async function main(): Promise<void> {
     console.log('\nSample: non_artist_names (first 10)');
     for (const r of nonArtistNames.slice(0, 10)) {
       console.log(`  ${r.id}  "${r.name}"  reason=${r.reason}  events=${r.event_count}`);
+    }
+    console.log('\nSample: spotify_protected (first 10)');
+    for (const r of spotifyProtected.slice(0, 10)) {
+      console.log(`  ${r.id}  "${r.name}"  reason=${r.reason}  pop=${r.spotify_popularity}  events=${r.event_count}`);
     }
     console.log('\nSample: name_collisions (first 5 clusters)');
     for (const c of collisionClusters.slice(0, 5)) {

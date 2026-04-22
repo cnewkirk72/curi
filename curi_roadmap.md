@@ -224,3 +224,39 @@ demand is proven.
 - **Phase 4's 305 `spotify_discovery_failed_at` artists** will be
   revisited in the targeted follow-up pass (captured in
   `CURI_CONTEXT.md`), likely as part of Phase 8.2's monthly refresh.
+
+---
+
+## Active follow-ups (Phase 4 tail)
+
+### 4f.7 — Resume `spotify-catchup` after rate-limit burn
+
+Catchup run on 2026-04-21 processed ~321/732 never-attempted artists
+before Spotify returned `retry-after: 83763s` (~23.3h) on the Client
+Credentials quota at row 322. Kernel `--concurrency 4` pushed ~320
+requests through in ~60s, which burned the window.
+
+**Resume:** on or after **2026-04-22 22:00 EDT (2026-04-23 02:00 UTC)**
+— once the retry-after window has elapsed.
+
+```
+pnpm --filter @curi/ingestion spotify-catchup --concurrency 2
+```
+
+Drop `--concurrency` to 2 this run to stay well inside the window.
+Remaining queue is ~390 artists; at 2-concurrency + 100ms throttle
+that's ~4 minutes, comfortably below any burn threshold.
+
+### 4f.8 — Artist-table cleanup pass (event-title pollution)
+
+Catchup run surfaced ~50–100 rows in `artists` that are actually event
+titles / lineup strings leaking in through pre-`classifyArtistName`
+scraper paths — "REGGAETON Boat Party NYC Yacht Cruise", "Refuge
+Fridays", "Cinco De Mayo Party at Dive Bar", "The Nursery: HAAi All
+Day Long", "- Brooklyn Warehouse", etc. Approach: expand
+`EVENT_WORD_PATTERNS` and `NOISE_EXACT` in
+`packages/ingestion/src/artist-parsing.ts`, then run the existing
+`audit.ts` + `audit-cleanup.ts --category=non_artist_names --apply`
+pipeline (which already backs up to `artists_audit_backup` and
+cascades `event_artists` deletes). Proposed patterns + the 53-row
+candidate delete list to be reviewed with Christian before commit.
