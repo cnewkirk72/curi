@@ -18,8 +18,11 @@ export type DateFilter =
   | 'tomorrow'
   | 'weekend'
   | 'week'
-  // Phase 6.2 — user picked a specific start/end day from the date
-  // picker. `date_from` and `date_to` are required when this is set.
+  // Phase 6.2 — user picked a specific start day (and optional end
+  // day) from the date picker. `date_from` is required when this is
+  // set; `date_to` is optional — when only `date_from` is set the
+  // filter is open-ended ("from X onward"), which is how a
+  // single-click in range mode commits.
   | 'custom';
 
 export type FilterState = {
@@ -31,7 +34,10 @@ export type FilterState = {
   date_from: string | null;
   /**
    * Phase 6.2 — inclusive end day for a custom range, as a
-   * `YYYY-MM-DD` NYC-local dayKey. Non-null only when `when === 'custom'`.
+   * `YYYY-MM-DD` NYC-local dayKey. Non-null only when
+   * `when === 'custom'` AND the user has picked the second endpoint;
+   * a null `date_to` while `when === 'custom'` means the filter is
+   * open-ended ("from `date_from` onward").
    */
   date_to: string | null;
   genres: string[];
@@ -109,23 +115,29 @@ export function parseFilters(sp: ParamsLike): FilterState {
   const to = parseDayKey(sp.get('to'));
 
   // Custom range discipline:
-  //   - `when=custom` requires BOTH from and to; if either is
-  //     missing we demote to 'all' and drop the stray day.
+  //   - `when=custom` requires at least `from` (`to` is optional —
+  //     first click in the range picker commits as "from X onward"
+  //     with an open-ended upper bound; second click narrows to a
+  //     closed range). If neither is set we demote to 'all'.
+  //   - If only `to` is set (unusual — callers shouldn't do this),
+  //     promote it to `from` so the filter still makes sense.
   //   - If from > to, swap — lets a user click end-first and still
-  //     land on a sane window without a correctness pop-up.
+  //     land on a sane closed window without a correctness pop-up.
   let resolvedWhen: DateFilter = isDateFilter(when) ? when : 'all';
   let date_from = from;
   let date_to = to;
   if (resolvedWhen === 'custom') {
-    if (!date_from || !date_to) {
+    if (!date_from && !date_to) {
       resolvedWhen = 'all';
-      date_from = null;
+    } else if (!date_from && date_to) {
+      date_from = date_to;
       date_to = null;
-    } else if (date_from > date_to) {
+    } else if (date_from && date_to && date_from > date_to) {
       const tmp = date_from;
       date_from = date_to;
       date_to = tmp;
     }
+    // date_from alone is valid — open-ended "from X onward" filter.
   } else {
     // Preset 'when' + from/to shouldn't coexist — the preset wins,
     // drop the orphan days.
@@ -165,9 +177,11 @@ export function parseFilters(sp: ParamsLike): FilterState {
 export function serializeFilters(state: FilterState): string {
   const params = new URLSearchParams();
   if (state.when !== 'all') params.set('when', state.when);
-  if (state.when === 'custom' && state.date_from && state.date_to) {
+  if (state.when === 'custom' && state.date_from) {
+    // `to` is optional — the first click in a range-mode picker
+    // commits just `from` for an open-ended "from X onward" filter.
     params.set('from', state.date_from);
-    params.set('to', state.date_to);
+    if (state.date_to) params.set('to', state.date_to);
   }
   if (state.genres.length) params.set('genres', state.genres.join(','));
   if (state.vibes.length) params.set('vibes', state.vibes.join(','));
@@ -372,15 +386,11 @@ export function labelForWhen(slug: DateFilter): string {
  * should fall back to labelForWhen() in that case.
  */
 export function labelForDateRange(state: FilterState): string | null {
-  if (state.when !== 'custom' || !state.date_from || !state.date_to) {
+  if (state.when !== 'custom' || !state.date_from) {
     return null;
   }
   const [fy, fm, fd] = state.date_from.split('-').map(Number) as [number, number, number];
-  const [ty, tm, td] = state.date_to.split('-').map(Number) as [number, number, number];
   const from = new Date(Date.UTC(fy, fm - 1, fd));
-  const to = new Date(Date.UTC(ty, tm - 1, td));
-  const sameYear = fy === ty;
-  const sameDay = state.date_from === state.date_to;
   const nowYear = new Date().getUTCFullYear();
 
   const shortOpts: Intl.DateTimeFormatOptions = {
@@ -395,8 +405,20 @@ export function labelForDateRange(state: FilterState): string | null {
     year: 'numeric',
   };
 
+  // Open-ended "from X onward" — no `to` set yet (first click in a
+  // range picker, or user deliberately picked a single-day start).
+  if (!state.date_to) {
+    const opts = fy === nowYear ? shortOpts : longOpts;
+    return `From ${new Intl.DateTimeFormat('en-US', opts).format(from)}`;
+  }
+
+  const [ty, tm, td] = state.date_to.split('-').map(Number) as [number, number, number];
+  const to = new Date(Date.UTC(ty, tm - 1, td));
+  const sameYear = fy === ty;
+  const sameDay = state.date_from === state.date_to;
+
   if (sameDay) {
-    // Single-day range — drop the year when it's the current year.
+    // Single-day closed range — drop the year when it's the current year.
     const opts = fy === nowYear ? shortOpts : longOpts;
     return new Intl.DateTimeFormat('en-US', opts).format(from);
   }
@@ -503,7 +525,9 @@ export type DateWindow = {
  *               single-day range (`from === to`) still captures all
  *               events starting that NYC evening through to 4am the
  *               next morning (matching the 4am day-boundary used
- *               throughout). If the range is in the past relative to
+ *               throughout). If only `date_from` is set (first click
+ *               in a range-mode picker), `endIso` is null — "from X
+ *               onward". If the start is in the past relative to
  *               `now`, we clamp `startIso` to `now` — there's no point
  *               querying for events that already happened.
  *
@@ -571,17 +595,18 @@ export function dateWindowFor(
     }
 
     case 'custom': {
-      // Guard: custom demands both ends. parseFilters already demotes
-      // an incomplete custom to 'all', but if a caller hands us a
-      // bare 'custom' string we can't honor it — fall back to 'all'.
-      if (!state || !state.date_from || !state.date_to) {
+      // Guard: custom demands at least `date_from`. parseFilters
+      // already demotes a truly empty custom to 'all', but if a
+      // caller hands us a bare 'custom' string we can't honor it —
+      // fall back to 'all'.
+      if (!state || !state.date_from) {
         return { startIso: nowIso, endIso: null };
       }
       const startIso = nycToUtcIso(state.date_from, DAY_BOUNDARY_HOUR);
-      const endIso = nycToUtcIso(
-        addDays(state.date_to, 1),
-        DAY_BOUNDARY_HOUR,
-      );
+      // Open-ended "from X onward" when only `date_from` is set.
+      const endIso = state.date_to
+        ? nycToUtcIso(addDays(state.date_to, 1), DAY_BOUNDARY_HOUR)
+        : null;
       return {
         // Clamp: asking for 2026-03-01 → 03-03 on March 2nd should
         // still only show events that haven't already ended.

@@ -68,7 +68,7 @@ export function DesktopSidebarFilters() {
     });
   }
 
-  // ── Preset "When" selection ────────────────────────
+  // ── Preset "When" selection ────────────────────────────────
   function selectPreset(slug: Exclude<DateFilter, 'custom'>) {
     commit({
       ...filters,
@@ -78,22 +78,18 @@ export function DesktopSidebarFilters() {
     });
   }
 
-  // ── Custom range selection ─────────────────────────
+  // ── Custom range selection ─────────────────────────────────
   function onRangeChange(value: RangeValue) {
-    // First click (from only, no to) — apply provisional state but
-    // don't navigate yet; we wait for the second click to avoid
-    // filtering the feed on a half-picked range. We encode the
-    // half-state in the URL anyway so shareable links work; the
-    // dateWindowFor() guard degrades to 'all' if the range is
-    // incomplete.
+    // First click (from only, no to) — commit `date_from` alone as
+    // an open-ended "from X onward" filter. The feed refreshes
+    // immediately with that date as the leading section header;
+    // the second click below narrows to a closed `from`..`to` range.
     if (!value.from || !value.to) {
       if (!value.from && !value.to) {
         // Cleared entirely
         commit({ ...filters, when: 'all', date_from: null, date_to: null });
         return;
       }
-      // Partial range — reflect it in URL so the picker stays sticky
-      // on reload, but dateWindowFor will no-op.
       commit({
         ...filters,
         when: 'custom',
@@ -114,7 +110,7 @@ export function DesktopSidebarFilters() {
     commit({ ...filters, when: 'all', date_from: null, date_to: null });
   }
 
-  // ── Genre / subgenre / vibe toggles ─────────────────────
+  // ── Genre / subgenre / vibe toggles ───────────────────────
   function toggle(list: string[], slug: string): string[] {
     return list.includes(slug) ? list.filter((s) => s !== slug) : [...list, slug];
   }
@@ -188,7 +184,7 @@ export function DesktopSidebarFilters() {
           )}
         </div>
 
-        {/* ── When: presets + custom range picker ────────── */}
+        {/* ── When: presets + custom range picker ─────────── */}
         <Section label="When">
           <div className="flex flex-wrap gap-2">
             {DATE_OPTIONS.map((opt) => {
@@ -271,7 +267,7 @@ export function DesktopSidebarFilters() {
           )}
         </Section>
 
-        {/* ── Vibe ─────────────────────────────── */}
+        {/* ── Vibe ─────────────────────────────────────── */}
         <Section label="Vibe" hint="Multi-select">
           <OptionGrid
             options={VIBE_OPTIONS}
