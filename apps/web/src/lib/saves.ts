@@ -34,6 +34,10 @@ type SavedRow = {
             spotify_image_url: string | null;
             spotify_url: string | null;
             spotify_popularity: number | null;
+            soundcloud_url: string | null;
+            soundcloud_followers: number | null;
+            bandcamp_url: string | null;
+            bandcamp_followers: number | null;
           } | null;
         }[]
       | null;
@@ -79,7 +83,11 @@ export async function getSavedEvents(): Promise<FeedEvent[]> {
             name,
             spotify_image_url,
             spotify_url,
-            spotify_popularity
+            spotify_popularity,
+            soundcloud_url,
+            soundcloud_followers,
+            bandcamp_url,
+            bandcamp_followers
           )
         )
       )
@@ -127,6 +135,10 @@ export async function getSavedEvents(): Promise<FeedEvent[]> {
           image_url: ea.artist?.spotify_image_url ?? null,
           spotify_url: ea.artist?.spotify_url ?? null,
           spotify_popularity: ea.artist?.spotify_popularity ?? null,
+          soundcloud_url: ea.artist?.soundcloud_url ?? null,
+          soundcloud_followers: ea.artist?.soundcloud_followers ?? null,
+          bandcamp_url: ea.artist?.bandcamp_url ?? null,
+          bandcamp_followers: ea.artist?.bandcamp_followers ?? null,
         }))
         .filter((a) => a.name.length > 0)
         .sort((a, b) => a.position - b.position),

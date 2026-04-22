@@ -17,7 +17,7 @@ import { Loader2 } from 'lucide-react';
 import { EventCard } from '@/components/event-card';
 import { nycDayKey, groupLabel } from '@/lib/format';
 import { cn } from '@/lib/utils';
-import type { FeedCursor, FeedEvent } from '@/lib/events';
+import { enrichmentScore, type FeedCursor, type FeedEvent } from '@/lib/events';
 import type { FilterState } from '@/lib/filters';
 import { loadMoreEvents } from '@/app/actions/load-more-events';
 
@@ -198,6 +198,11 @@ export function InfiniteFeed({
 // Group events by NYC calendar day. Same logic the server used to use
 // directly on the feed — lifted here since the client owns the
 // accumulated list once paging kicks in.
+//
+// Within each day bucket we re-sort by `enrichmentScore` DESC so the
+// richest events (artist links, hero image, popular lineup) surface
+// to the top. Day ordering stays chronological — keyset pagination
+// depends on that invariant and we don't touch it.
 function groupByDay(events: FeedEvent[]): DayGroup[] {
   const buckets = new Map<string, FeedEvent[]>();
   for (const ev of events) {
@@ -209,5 +214,18 @@ function groupByDay(events: FeedEvent[]): DayGroup[] {
   // ISO dayKey strings sort lexically == chronologically.
   return [...buckets.entries()]
     .sort((a, b) => (a[0] < b[0] ? -1 : 1))
-    .map(([dayKey, evs]) => ({ dayKey, events: evs }));
+    .map(([dayKey, evs]) => ({
+      dayKey,
+      // Sort within-day by enrichment (desc). Tiebreak on starts_at
+      // then id to match the server's chronological ordering for
+      // equally-enriched events — keeps the feed visually stable when
+      // scores tie (e.g. two events with no enrichment data at all).
+      events: [...evs].sort((a, b) => {
+        const diff = enrichmentScore(b) - enrichmentScore(a);
+        if (diff !== 0) return diff;
+        if (a.starts_at !== b.starts_at)
+          return a.starts_at < b.starts_at ? -1 : 1;
+        return a.id < b.id ? -1 : 1;
+      }),
+    }));
 }
