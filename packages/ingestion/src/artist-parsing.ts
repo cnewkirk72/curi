@@ -18,6 +18,19 @@
 // rule added here takes effect at scrape time AND audit time.
 
 const PRESENTS_SPLIT = /(?:^|[^a-z0-9])(?:presents?|present|pres\.)\s*:?\s*/i;
+// Strip promoter-appended date tags at the end of titles before splitting. RA's
+// "Sunny Side Up presents: Annicka 04/24" form would otherwise split "Annicka 04/24"
+// on "/" (COMMA_SPLIT includes /) and produce ["Annicka 04", "24"] as two separate
+// bogus artist rows. Only strips at end-of-string so legit slashes inside artist
+// names (e.g. DJ A/B stage names) mid-title are unaffected. Accepts "04/24",
+// "04/24/26", "4/24", "4/24/2026" — any 1-2 digit month, 1-2 digit day, optional
+// 2-4 digit year.
+const TITLE_DATE_TAIL = /\s+\d{1,2}\/\d{1,2}(?:\/\d{2,4})?\s*$/;
+// Used by classifyArtistName to reject pure-numeric pieces (e.g. "24", "04",
+// "2026") that leaked through prior to the date-tail strip. Belt-and-suspenders:
+// even if a new scraper comes along and bypasses parseArtists, a bare integer
+// will never slip into artists table.
+const PURE_NUMERIC = /^\d{1,4}$/;
 // `feat` is followed by `\b\.?` rather than `feat\.?\b` so the optional period
 // is consumed as part of the delimiter. With `feat\.?\b`, "feat." never matched
 // (the `.`→space transition isn't a word boundary), so the engine fell back to
@@ -241,7 +254,8 @@ export type ClassifyReason =
   | 'too_short'
   | 'too_long'
   | 'noise'
-  | 'event_title';
+  | 'event_title'
+  | 'pure_numeric';
 
 export interface ClassifyResult {
   /** True if the cleaned name is plausibly an artist and should be kept. */
@@ -271,6 +285,13 @@ export function classifyArtistName(
   if (!cleaned) return { valid: false, reason: 'empty', cleaned };
   if (cleaned.length < 2) return { valid: false, reason: 'too_short', cleaned };
   if (cleaned.length > 80) return { valid: false, reason: 'too_long', cleaned };
+  // Pure digits are never an artist — they're either fragments of a date stub
+  // that escaped the TITLE_DATE_TAIL strip, a year token (2026), or a price
+  // ("$20"/"20" after $ stripping). Checked before NOISE_EXACT so we don't
+  // need to enumerate every numeric string.
+  if (PURE_NUMERIC.test(cleaned)) {
+    return { valid: false, reason: 'pure_numeric', cleaned };
+  }
   if (NOISE_EXACT.has(cleaned.toLowerCase())) {
     return { valid: false, reason: 'noise', cleaned };
   }
@@ -298,6 +319,13 @@ export function parseArtists(title: string): string[] {
   // Pre-clean: strip quoted album/track names globally so they don't confuse
   // the comma splitter.
   let working = title.replace(QUOTED_BLOCK, ' ').replace(/\s+/g, ' ').trim();
+
+  // Strip trailing "MM/DD[/YY]" date stubs that RA promoters append to titles
+  // ("Annicka 04/24", "Grossomoddo 05/02"). Without this the "/" in COMMA_SPLIT
+  // tears the title in half and creates bogus artist rows like ["Annicka 04",
+  // "24"]. Only at end-of-string so legit mid-title slashes (like A/V duo
+  // names) still split correctly.
+  working = working.replace(TITLE_DATE_TAIL, '').trim();
 
   // 1. Drop "Venue presents:" — only care about what's after.
   const presentsMatch = working.split(PRESENTS_SPLIT);

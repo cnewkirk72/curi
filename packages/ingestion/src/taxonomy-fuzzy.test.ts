@@ -176,14 +176,14 @@ describe('findNearMatch', () => {
   });
 
   it('finds a match at the length-6 boundary (techno ↔ tekhno)', () => {
-    // canonical "techno" = 6, canonical "tekhno" = 6. Lev = 2. Both
-    // clear the gate. This is intentional: at length 6 the gate
-    // admits the pair and Sonnet confirms. We want typos on short
-    // real-genre names to reach Sonnet review — just not pass through
-    // as auto-merges on distance alone.
+    // canonical "techno" = 6, canonical "tekhno" = 6. Lev = 1 (single
+    // substitution c↔k). Both clear the MIN_CANONICAL_LENGTH=6 gate. This
+    // is intentional: at length 6 the gate admits the pair and Sonnet
+    // confirms. We want typos on short real-genre names to reach Sonnet
+    // review — just not pass through as auto-merges on distance alone.
     const hit = findNearMatch('tekhno', ['techno']);
     assert.ok(hit !== null);
-    assert.equal(hit!.distance, 2);
+    assert.equal(hit!.distance, 1);
     assert.equal(hit!.match, 'techno');
   });
 });
