@@ -10,9 +10,10 @@
 //   - Same useTransition pattern for responsive Apply
 //
 // Desktop-specific additions:
-//   - Custom date range picker (Phase 6.2) inline below the preset
-//     "When" pills. Selecting a range sets `when='custom'` and kicks
-//     any active preset off; selecting a preset clears the range.
+//   - Custom single-date picker (Phase 6.2) inline below the preset
+//     "When" pills. Selecting a date sets `when='custom'` with
+//     `date_from = picked day` and `date_to = null` (open-ended
+//     "from X onward"); selecting a preset clears the custom date.
 //   - Sticky at top-24 so it stays visible while the feed scrolls —
 //     matches Notion/Linear filter-sidebar UX.
 //
@@ -42,7 +43,7 @@ import {
 } from '@/lib/filters';
 import { getSubgenresByParent } from '@/lib/taxonomy';
 import { SubgenrePicker } from '@/components/subgenre-picker';
-import { DatePicker, nycTodayDayKey, type RangeValue } from '@/components/date-picker';
+import { DatePicker, nycTodayDayKey, type SingleValue } from '@/components/date-picker';
 
 export function DesktopSidebarFilters() {
   const router = useRouter();
@@ -78,35 +79,25 @@ export function DesktopSidebarFilters() {
     });
   }
 
-  // ── Custom range selection ─────────────────────────────────
-  function onRangeChange(value: RangeValue) {
-    // First click (from only, no to) — commit `date_from` alone as
-    // an open-ended "from X onward" filter. The feed refreshes
-    // immediately with that date as the leading section header;
-    // the second click below narrows to a closed `from`..`to` range.
-    if (!value.from || !value.to) {
-      if (!value.from && !value.to) {
-        // Cleared entirely
-        commit({ ...filters, when: 'all', date_from: null, date_to: null });
-        return;
-      }
-      commit({
-        ...filters,
-        when: 'custom',
-        date_from: value.from,
-        date_to: value.to,
-      });
+  // ── Custom single-date selection ───────────────────────────
+  // Picking a day sets `when='custom'` with `date_from = day` and
+  // `date_to = null` — i.e. "from this day onward". Re-tapping the
+  // same day in the picker clears it (handled by DatePicker's single
+  // mode returning null) and we demote back to 'all'.
+  function onDateChange(value: SingleValue) {
+    if (!value) {
+      commit({ ...filters, when: 'all', date_from: null, date_to: null });
       return;
     }
     commit({
       ...filters,
       when: 'custom',
-      date_from: value.from,
-      date_to: value.to,
+      date_from: value,
+      date_to: null,
     });
   }
 
-  function clearRange() {
+  function clearDate() {
     commit({ ...filters, when: 'all', date_from: null, date_to: null });
   }
 
@@ -201,20 +192,20 @@ export function DesktopSidebarFilters() {
             })}
           </div>
 
-          {/* Custom range picker. Always rendered — the picker is the
-              primary affordance for "specific dates" and showing it
-              up front (vs behind a disclosure) is the main ergonomic
-              win at desktop. */}
+          {/* Custom single-date picker. Always rendered — the picker
+              is the primary affordance for "specific dates" and
+              showing it up front (vs behind a disclosure) is the main
+              ergonomic win at desktop. */}
           <div className="mt-4">
             <div className="mb-2 flex items-center justify-between">
               <span className="inline-flex items-center gap-1.5 text-2xs text-fg-muted">
                 <CalendarRange className="h-3 w-3" />
-                {rangeLabel ?? 'Or pick a range'}
+                {rangeLabel ?? 'Or pick a specific date'}
               </span>
               {filters.when === 'custom' && (
                 <button
                   type="button"
-                  onClick={clearRange}
+                  onClick={clearDate}
                   className="text-2xs font-medium text-fg-muted transition hover:text-fg-primary"
                 >
                   Reset
@@ -222,12 +213,12 @@ export function DesktopSidebarFilters() {
               )}
             </div>
             <DatePicker
-              mode="range"
-              value={{ from: filters.date_from, to: filters.date_to }}
-              onChange={onRangeChange}
+              mode="single"
+              value={filters.date_from}
+              onChange={onDateChange}
               todayDayKey={todayDayKey}
               minDate={todayDayKey}
-              ariaLabel="Pick a date range"
+              ariaLabel="Pick a specific date"
             />
           </div>
         </Section>

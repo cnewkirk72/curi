@@ -115,6 +115,22 @@ type EventRow = {
 };
 
 /**
+ * Keyset cursor for infinite-scroll pagination. We order the feed by
+ * `(starts_at ASC, id ASC)`; to continue past an event, send its
+ * `starts_at` and `id` — we'll return rows strictly "after" it in the
+ * composite ordering. Keyset (vs. OFFSET) survives mid-scroll ingests
+ * without double-rendering a row or skipping one, which matters
+ * because scrapers run nightly and can land new events while a user
+ * is scrolling.
+ */
+export type FeedCursor = {
+  /** ISO UTC string — the `starts_at` of the last event already shown. */
+  afterStartsAt: string;
+  /** UUID — the `id` of the last event already shown. */
+  afterId: string;
+};
+
+/**
  * Fetch upcoming NYC events, ordered by start time.
  *
  * Relies on the `events_starts_at_idx` + `events_city_starts_idx` indexes
@@ -125,7 +141,12 @@ type EventRow = {
 export async function getUpcomingEvents({
   limit = 80,
   filters = EMPTY_FILTERS,
-}: { limit?: number; filters?: FilterState } = {}): Promise<FeedEvent[]> {
+  cursor,
+}: {
+  limit?: number;
+  filters?: FilterState;
+  cursor?: FeedCursor;
+} = {}): Promise<FeedEvent[]> {
   const supabase = createClient();
   // Pass the full FilterState so `dateWindowFor` can honor custom
   // ranges (when='custom' reads date_from / date_to off the state).
@@ -169,6 +190,21 @@ export async function getUpcomingEvents({
   // has `endIso === null`, i.e. no cap).
   if (endIso) {
     query = query.lt('starts_at', endIso);
+  }
+
+  // Keyset pagination. Continue strictly after the last shown event
+  // in the composite `(starts_at, id)` ordering:
+  //   starts_at > after.starts_at
+  //   OR (starts_at = after.starts_at AND id > after.id)
+  //
+  // PostgREST `.or(...)` builds an OR group; the inner `and(...)` is
+  // nested and combined implicitly with the rest of the query via AND,
+  // so the effective predicate is `(window bounds) AND (keyset)` —
+  // exactly what we want.
+  if (cursor) {
+    query = query.or(
+      `starts_at.gt.${cursor.afterStartsAt},and(starts_at.eq.${cursor.afterStartsAt},id.gt.${cursor.afterId})`,
+    );
   }
 
   // Multi-select genres / vibes → OR semantics ("techno OR house"),
@@ -236,8 +272,12 @@ export async function getUpcomingEvents({
     query = query.in('id', eventIds);
   }
 
+  // Sort order must match the keyset cursor exactly — tiebreak on `id`
+  // so two events at the same `starts_at` always resolve in a stable,
+  // cursor-compatible order.
   const { data, error } = await query
     .order('starts_at', { ascending: true })
+    .order('id', { ascending: true })
     .limit(limit);
 
   if (error) {

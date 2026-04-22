@@ -10,21 +10,28 @@
 
 import { AppHeader } from '@/components/app-header';
 import { BottomNav } from '@/components/bottom-nav';
-import { EventCard } from '@/components/event-card';
 import { FilterBar } from '@/components/filter-bar';
 import { DesktopTopNav } from '@/components/desktop/desktop-top-nav';
 import { DesktopSidebarFilters } from '@/components/desktop/desktop-sidebar-filters';
-import { getUpcomingEvents, type FeedEvent } from '@/lib/events';
+import { InfiniteFeed } from '@/components/infinite-feed';
+import { getUpcomingEvents } from '@/lib/events';
 import { getSavedEventIds } from '@/lib/saves';
 import { createClient } from '@/lib/supabase/server';
-import { nycDayKey, groupLabel } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import {
   hasActiveFilters,
   parseFilters,
+  serializeFilters,
   labelForDateRange,
   labelForWhen,
 } from '@/lib/filters';
+
+// Initial SSR page size. Keep this small enough that the server
+// payload stays snappy and infinite scroll has room to demonstrate
+// itself, big enough that most users see 2-3 day groups before
+// needing to trigger a page. The client (<InfiniteFeed>) pages in
+// chunks of equal size from here on out.
+const INITIAL_PAGE_SIZE = 40;
 
 // Re-fetch on each request during Phase 3. We'll revisit caching
 // (e.g. `revalidate: 60`) in Phase 3.12 once we see production
@@ -62,14 +69,17 @@ export default async function HomePage({
   const [events, savedIds, {
     data: { user },
   }] = await Promise.all([
-    getUpcomingEvents({ limit: 80, filters }),
+    getUpcomingEvents({ limit: INITIAL_PAGE_SIZE, filters }),
     getSavedEventIds(),
     supabase.auth.getUser(),
   ]);
 
   const signedIn = !!user;
-  const groups = groupByDay(events);
   const active = hasActiveFilters(filters);
+  // Remount the InfiniteFeed whenever the URL's filter state changes
+  // so we don't have to reconcile in-flight pagination against a new
+  // filter set — the parent cache-busts, we just append.
+  const feedKey = serializeFilters(filters) || 'all';
 
   // Eyebrow label — drives the tiny uppercase caption above the
   // page title. Custom ranges get the formatted "Apr 25 – Apr 27"
@@ -120,7 +130,7 @@ export default async function HomePage({
           <DesktopSidebarFilters />
         </div>
 
-        {/* Feed column ────────────────────────── */}
+        {/* Feed column ────────────────────────────────────────── */}
         <div className="min-w-0 lg:col-start-2">
           {/* Hero title — adapts to the active date filter so the
               feed's framing stays honest when a user has narrowed
@@ -139,10 +149,17 @@ export default async function HomePage({
             <FilterBar />
           </div>
 
-          {groups.length === 0 ? (
+          {events.length === 0 ? (
             <EmptyState filtered={active} />
           ) : (
-            <Feed groups={groups} savedIds={savedIds} signedIn={signedIn} />
+            <InfiniteFeed
+              key={feedKey}
+              initialEvents={events}
+              initialHasMore={events.length === INITIAL_PAGE_SIZE}
+              filters={filters}
+              savedIds={[...savedIds]}
+              signedIn={signedIn}
+            />
           )}
         </div>
       </main>
@@ -152,72 +169,7 @@ export default async function HomePage({
   );
 }
 
-// ─── Feed rendering ─────────────────────────────────
-
-type DayGroup = { dayKey: string; events: FeedEvent[] };
-
-function groupByDay(events: FeedEvent[]): DayGroup[] {
-  const buckets = new Map<string, FeedEvent[]>();
-  for (const ev of events) {
-    const key = nycDayKey(ev.starts_at);
-    const list = buckets.get(key);
-    if (list) list.push(ev);
-    else buckets.set(key, [ev]);
-  }
-  // Keys are ISO-day strings, so lexical sort == chronological sort.
-  return [...buckets.entries()]
-    .sort((a, b) => (a[0] < b[0] ? -1 : 1))
-    .map(([dayKey, events]) => ({ dayKey, events }));
-}
-
-function Feed({
-  groups,
-  savedIds,
-  signedIn,
-}: {
-  groups: DayGroup[];
-  savedIds: Set<string>;
-  signedIn: boolean;
-}) {
-  return (
-    <div className="relative space-y-10">
-      {groups.map(({ dayKey, events }) => (
-        <section key={dayKey} aria-labelledby={`group-${dayKey}`}>
-          <div className="mb-3 flex items-baseline justify-between">
-            <h3
-              id={`group-${dayKey}`}
-              className="font-display text-xs font-medium uppercase tracking-widest text-fg-muted"
-            >
-              {groupLabel(dayKey)}
-            </h3>
-            <span className="text-2xs text-fg-dim tabular">
-              {events.length} {events.length === 1 ? 'event' : 'events'}
-            </span>
-          </div>
-          {/* Mobile: stacked vertical list. Desktop: responsive grid.
-              We lean on the card's aspect-ratio hero to keep rows
-              aligned across differently-sized titles/lineups. */}
-          <div
-            className={cn(
-              'space-y-4',
-              'lg:grid lg:grid-cols-2 lg:gap-5 lg:space-y-0',
-              'xl:grid-cols-3',
-            )}
-          >
-            {events.map((ev) => (
-              <EventCard
-                key={ev.id}
-                event={ev}
-                saved={savedIds.has(ev.id)}
-                signedIn={signedIn}
-              />
-            ))}
-          </div>
-        </section>
-      ))}
-    </div>
-  );
-}
+// ─── Empty state ──────────────────────────────────────────────────────
 
 function EmptyState({ filtered }: { filtered: boolean }) {
   if (filtered) {

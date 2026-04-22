@@ -31,7 +31,7 @@ import {
 } from '@/lib/filters';
 import { getSubgenresByParent } from '@/lib/taxonomy';
 import { SubgenrePicker } from '@/components/subgenre-picker';
-import { DatePicker, nycTodayDayKey, type RangeValue } from '@/components/date-picker';
+import { DatePicker, nycTodayDayKey, type SingleValue } from '@/components/date-picker';
 
 type Props = {
   open: boolean;
@@ -98,24 +98,25 @@ export function FilterSheet({ open, onClose, initialFilters }: Props) {
     });
   }
 
-  // Custom range <-> preset handoff.
-  //   Picking a preset clears the range; picking a range sets
-  //   when='custom' and clears the preset. Either action is
+  // Custom date <-> preset handoff.
+  //   Picking a preset clears the custom date; picking a specific day
+  //   sets when='custom' with date_from = day / date_to = null (open-
+  //   ended "from X onward") and clears the preset. Either action is
   //   one-way — no ambiguous "both set" state.
   function selectPreset(slug: Exclude<DateFilter, 'custom'>) {
     setDraft((d) => ({ ...d, when: slug, date_from: null, date_to: null }));
   }
-  function onRangeChange(value: RangeValue) {
-    if (!value.from && !value.to) {
-      // Cleared from inside the picker.
+  function onDateChange(value: SingleValue) {
+    if (!value) {
+      // Cleared from inside the picker (re-tap of the selected day).
       setDraft((d) => ({ ...d, when: 'all', date_from: null, date_to: null }));
       return;
     }
     setDraft((d) => ({
       ...d,
       when: 'custom',
-      date_from: value.from,
-      date_to: value.to,
+      date_from: value,
+      date_to: null,
     }));
   }
 
@@ -155,7 +156,7 @@ export function FilterSheet({ open, onClose, initialFilters }: Props) {
 
   return (
     <>
-      {/* Backdrop ─────────────────────────────────── */}
+      {/* Backdrop ────────────────────────────────────────────────── */}
       <div
         aria-hidden
         onClick={onClose}
@@ -166,7 +167,7 @@ export function FilterSheet({ open, onClose, initialFilters }: Props) {
         )}
       />
 
-      {/* Sheet ───────────────────────────────────── */}
+      {/* Sheet ───────────────────────────────────────────────────── */}
       <div
         role="dialog"
         aria-modal="true"
@@ -220,17 +221,16 @@ export function FilterSheet({ open, onClose, initialFilters }: Props) {
                 ))}
               </div>
 
-              {/* Custom range disclosure. When a range is already set
-                  we render the picker expanded by default so the user
-                  can see what they chose. Otherwise we start collapsed
-                  and let them tap to expand. */}
-              <CustomRangeDisclosure
+              {/* Custom date disclosure. When a custom date is already
+                  set we render the picker expanded by default so the
+                  user can see what they chose. Otherwise we start
+                  collapsed and let them tap to expand. */}
+              <CustomDateDisclosure
                 expanded={draft.when === 'custom'}
                 rangeLabel={rangeLabel}
-                from={draft.date_from}
-                to={draft.date_to}
+                value={draft.date_from}
                 todayDayKey={todayDayKey}
-                onChange={onRangeChange}
+                onChange={onDateChange}
               />
             </Section>
 
@@ -324,7 +324,7 @@ export function FilterSheet({ open, onClose, initialFilters }: Props) {
   );
 }
 
-// ── Subcomponents ────────────────────────────────────
+// ── Subcomponents ──────────────────────────────────────────────────
 
 function Section({
   label,
@@ -412,25 +412,23 @@ function OptionGrid({
   );
 }
 
-// Custom-range disclosure + inline DatePicker.
+// Custom-date disclosure + inline DatePicker.
 // The picker is lazily revealed (click-to-expand) rather than always
 // on display; a typical mobile user picks a preset ("Tonight") more
-// often than a specific range, so we don't want the picker eating
+// often than a specific date, so we don't want the picker eating
 // vertical space by default.
-function CustomRangeDisclosure({
+function CustomDateDisclosure({
   expanded,
   rangeLabel,
-  from,
-  to,
+  value,
   todayDayKey,
   onChange,
 }: {
   expanded: boolean;
   rangeLabel: string | null;
-  from: string | null;
-  to: string | null;
+  value: string | null;
   todayDayKey: string;
-  onChange: (v: RangeValue) => void;
+  onChange: (v: SingleValue) => void;
 }) {
   const [open, setOpen] = useState(expanded);
   // Re-sync if the parent flipped `when=custom` after mount (e.g. a
@@ -455,22 +453,22 @@ function CustomRangeDisclosure({
         )}
       >
         <CalendarRange className="h-3 w-3" />
-        {rangeLabel ?? 'Custom range'}
+        {rangeLabel ?? 'Pick a specific date'}
       </button>
 
       {open && (
         <div className="mt-3 animate-fade-in">
           <DatePicker
-            mode="range"
-            value={{ from, to }}
+            mode="single"
+            value={value}
             onChange={onChange}
             todayDayKey={todayDayKey}
             minDate={todayDayKey}
-            ariaLabel="Pick a date range"
+            ariaLabel="Pick a specific date"
             className="mx-auto"
           />
           <p className="mt-2 text-center text-[11px] text-fg-dim">
-            Tap a day to set the start, then another to set the end.
+            Tap a day to filter the feed from that date onward.
           </p>
         </div>
       )}
