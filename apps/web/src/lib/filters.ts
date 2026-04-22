@@ -12,10 +12,28 @@ import { nycDayKey } from './format';
 
 // ── Types ─────────────────────────────────────────────────
 
-export type DateFilter = 'all' | 'tonight' | 'tomorrow' | 'weekend' | 'week';
+export type DateFilter =
+  | 'all'
+  | 'tonight'
+  | 'tomorrow'
+  | 'weekend'
+  | 'week'
+  // Phase 6.2 — user picked a specific start/end day from the date
+  // picker. `date_from` and `date_to` are required when this is set.
+  | 'custom';
 
 export type FilterState = {
   when: DateFilter;
+  /**
+   * Phase 6.2 — inclusive start day for a custom range, as a
+   * `YYYY-MM-DD` NYC-local dayKey. Non-null only when `when === 'custom'`.
+   */
+  date_from: string | null;
+  /**
+   * Phase 6.2 — inclusive end day for a custom range, as a
+   * `YYYY-MM-DD` NYC-local dayKey. Non-null only when `when === 'custom'`.
+   */
+  date_to: string | null;
   genres: string[];
   vibes: string[];
   /**
@@ -38,6 +56,8 @@ export type FilterState = {
 
 export const EMPTY_FILTERS: FilterState = {
   when: 'all',
+  date_from: null,
+  date_to: null,
   genres: [],
   vibes: [],
   subgenres: [],
@@ -53,14 +73,70 @@ type ParamsLike = { get: (key: string) => string | null };
 
 function isDateFilter(v: string | null): v is DateFilter {
   return (
-    v === 'tonight' || v === 'tomorrow' || v === 'weekend' || v === 'week'
+    v === 'tonight' ||
+    v === 'tomorrow' ||
+    v === 'weekend' ||
+    v === 'week' ||
+    v === 'custom'
   );
+}
+
+// Validates a `YYYY-MM-DD` dayKey. We don't want a hand-crafted URL
+// with `?from=banana` to blow up the server render — just fall back
+// to null and the query will ignore the broken range.
+const DAY_KEY_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+function parseDayKey(v: string | null): string | null {
+  if (!v || !DAY_KEY_RE.test(v)) return null;
+  const [y, m, d] = v.split('-').map(Number) as [number, number, number];
+  // Round-trip through Date to reject impossible calendar days like
+  // 2026-02-31 — UTC construction auto-rolls, so comparing components
+  // catches the rewrite.
+  const test = new Date(Date.UTC(y, m - 1, d));
+  if (
+    test.getUTCFullYear() !== y ||
+    test.getUTCMonth() !== m - 1 ||
+    test.getUTCDate() !== d
+  ) {
+    return null;
+  }
+  return v;
 }
 
 export function parseFilters(sp: ParamsLike): FilterState {
   const when = sp.get('when');
+  const from = parseDayKey(sp.get('from'));
+  const to = parseDayKey(sp.get('to'));
+
+  // Custom range discipline:
+  //   - `when=custom` requires BOTH from and to; if either is
+  //     missing we demote to 'all' and drop the stray day.
+  //   - If from > to, swap — lets a user click end-first and still
+  //     land on a sane window without a correctness pop-up.
+  let resolvedWhen: DateFilter = isDateFilter(when) ? when : 'all';
+  let date_from = from;
+  let date_to = to;
+  if (resolvedWhen === 'custom') {
+    if (!date_from || !date_to) {
+      resolvedWhen = 'all';
+      date_from = null;
+      date_to = null;
+    } else if (date_from > date_to) {
+      const tmp = date_from;
+      date_from = date_to;
+      date_to = tmp;
+    }
+  } else {
+    // Preset 'when' + from/to shouldn't coexist — the preset wins,
+    // drop the orphan days.
+    date_from = null;
+    date_to = null;
+  }
+
   return {
-    when: isDateFilter(when) ? when : 'all',
+    when: resolvedWhen,
+    date_from,
+    date_to,
     genres: (sp.get('genres') ?? '')
       .split(',')
       .map((s) => s.trim().toLowerCase())
@@ -89,6 +165,10 @@ export function parseFilters(sp: ParamsLike): FilterState {
 export function serializeFilters(state: FilterState): string {
   const params = new URLSearchParams();
   if (state.when !== 'all') params.set('when', state.when);
+  if (state.when === 'custom' && state.date_from && state.date_to) {
+    params.set('from', state.date_from);
+    params.set('to', state.date_to);
+  }
   if (state.genres.length) params.set('genres', state.genres.join(','));
   if (state.vibes.length) params.set('vibes', state.vibes.join(','));
   if (state.subgenres.length) params.set('subgenres', state.subgenres.join(','));
@@ -151,7 +231,10 @@ export const VIBE_OPTIONS: FilterOption[] = [
   { slug: 'experimental', label: 'Experimental' },
 ];
 
-export const DATE_OPTIONS: { slug: DateFilter; label: string }[] = [
+// Preset options rendered in the filter sheet/sidebar "When" section.
+// 'custom' is intentionally excluded — it's selected implicitly when
+// the user picks a range in the date picker, not via a pill.
+export const DATE_OPTIONS: { slug: Exclude<DateFilter, 'custom'>; label: string }[] = [
   { slug: 'all', label: 'All upcoming' },
   { slug: 'tonight', label: 'Tonight' },
   { slug: 'tomorrow', label: 'Tomorrow' },
@@ -273,7 +356,57 @@ export function labelForVibe(slug: string): string {
 }
 
 export function labelForWhen(slug: DateFilter): string {
+  if (slug === 'custom') return 'Custom range';
   return DATE_OPTIONS.find((o) => o.slug === slug)?.label ?? slug;
+}
+
+/**
+ * Short, chip-friendly label for a `when === 'custom'` window.
+ * Examples:
+ *   "Apr 25"              (single-day range)
+ *   "Apr 25 – Apr 27"     (same-year range)
+ *   "Dec 28 – Jan 3"      (same-year range across month boundary)
+ *   "Dec 28, 2026 – Jan 3, 2027" (cross-year range)
+ *
+ * Returns null when the state isn't a valid custom range — callers
+ * should fall back to labelForWhen() in that case.
+ */
+export function labelForDateRange(state: FilterState): string | null {
+  if (state.when !== 'custom' || !state.date_from || !state.date_to) {
+    return null;
+  }
+  const [fy, fm, fd] = state.date_from.split('-').map(Number) as [number, number, number];
+  const [ty, tm, td] = state.date_to.split('-').map(Number) as [number, number, number];
+  const from = new Date(Date.UTC(fy, fm - 1, fd));
+  const to = new Date(Date.UTC(ty, tm - 1, td));
+  const sameYear = fy === ty;
+  const sameDay = state.date_from === state.date_to;
+  const nowYear = new Date().getUTCFullYear();
+
+  const shortOpts: Intl.DateTimeFormatOptions = {
+    timeZone: 'UTC',
+    month: 'short',
+    day: 'numeric',
+  };
+  const longOpts: Intl.DateTimeFormatOptions = {
+    timeZone: 'UTC',
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  };
+
+  if (sameDay) {
+    // Single-day range — drop the year when it's the current year.
+    const opts = fy === nowYear ? shortOpts : longOpts;
+    return new Intl.DateTimeFormat('en-US', opts).format(from);
+  }
+  if (sameYear && fy === nowYear) {
+    // Most common case: both ends in the current year.
+    return `${new Intl.DateTimeFormat('en-US', shortOpts).format(from)} – ${new Intl.DateTimeFormat('en-US', shortOpts).format(to)}`;
+  }
+  // Cross-year or future-year range — spell out years on both ends
+  // so the chip stays unambiguous.
+  return `${new Intl.DateTimeFormat('en-US', longOpts).format(from)} – ${new Intl.DateTimeFormat('en-US', longOpts).format(to)}`;
 }
 
 /** Display label for a subgenre slug. Used in active-filter chips.
@@ -357,7 +490,7 @@ export type DateWindow = {
 };
 
 /**
- * Compute the `[start, end)` window for a DateFilter.
+ * Compute the `[start, end)` window for a FilterState's date filter.
  *
  * - `all`:      now → ∞
  * - `tonight`:  now → tomorrow 4am NYC
@@ -366,11 +499,24 @@ export type DateWindow = {
  *               already inside the window — avoids filtering out
  *               events currently happening on a Saturday)
  * - `week`:     now → next Mon 4am NYC
+ * - `custom`:   date_from 4am NYC → (date_to + 1 day) 4am NYC, so a
+ *               single-day range (`from === to`) still captures all
+ *               events starting that NYC evening through to 4am the
+ *               next morning (matching the 4am day-boundary used
+ *               throughout). If the range is in the past relative to
+ *               `now`, we clamp `startIso` to `now` — there's no point
+ *               querying for events that already happened.
+ *
+ * Accepts either a bare `DateFilter` (preserves the old call-site
+ * shape) or a FilterState (needed for the 'custom' case which depends
+ * on date_from/date_to).
  */
 export function dateWindowFor(
-  when: DateFilter,
+  input: DateFilter | FilterState,
   now: Date = new Date(),
 ): DateWindow {
+  const when = typeof input === 'string' ? input : input.when;
+  const state: FilterState | null = typeof input === 'string' ? null : input;
   const nowIso = now.toISOString();
   const todayKey = nycDayKey(nowIso);
 
@@ -421,6 +567,26 @@ export function dateWindowFor(
       return {
         startIso: nowIso,
         endIso: nycToUtcIso(addDays(todayKey, daysToMon), DAY_BOUNDARY_HOUR),
+      };
+    }
+
+    case 'custom': {
+      // Guard: custom demands both ends. parseFilters already demotes
+      // an incomplete custom to 'all', but if a caller hands us a
+      // bare 'custom' string we can't honor it — fall back to 'all'.
+      if (!state || !state.date_from || !state.date_to) {
+        return { startIso: nowIso, endIso: null };
+      }
+      const startIso = nycToUtcIso(state.date_from, DAY_BOUNDARY_HOUR);
+      const endIso = nycToUtcIso(
+        addDays(state.date_to, 1),
+        DAY_BOUNDARY_HOUR,
+      );
+      return {
+        // Clamp: asking for 2026-03-01 → 03-03 on March 2nd should
+        // still only show events that haven't already ended.
+        startIso: startIso > nowIso ? startIso : nowIso,
+        endIso,
       };
     }
   }

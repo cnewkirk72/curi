@@ -127,7 +127,9 @@ export async function getUpcomingEvents({
   filters = EMPTY_FILTERS,
 }: { limit?: number; filters?: FilterState } = {}): Promise<FeedEvent[]> {
   const supabase = createClient();
-  const { startIso, endIso } = dateWindowFor(filters.when);
+  // Pass the full FilterState so `dateWindowFor` can honor custom
+  // ranges (when='custom' reads date_from / date_to off the state).
+  const { startIso, endIso } = dateWindowFor(filters);
 
   let query = supabase
     .from('events')
