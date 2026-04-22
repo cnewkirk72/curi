@@ -30,11 +30,28 @@ type EnrichableEvent = {
 };
 
 /**
+ * How much popularity outweighs completeness in the final score. Bumped
+ * from 1 → 3 after shipping the initial sort — feedback was that the feed
+ * didn't lean hard enough on actually-popular acts. With this weight,
+ * a 3-artist event with modest-to-good popularity data lands ~10x
+ * higher than an event that's merely "has all the fields filled in."
+ *
+ * Completeness still matters: it's a tiebreaker for events where we have
+ * no popularity signal (fresh scrapes, niche artists Spotify never heard
+ * of), and its +5 hero-image bonus keeps image-backed events above
+ * otherwise-equivalent text-only ones.
+ *
+ * Single top-level dial by design: the internal balance between
+ * spotify_popularity (raw) and follower log2-scaling was tuned
+ * intentionally, and we don't want to touch those each time the
+ * overall weight shifts.
+ */
+const POPULARITY_WEIGHT = 3;
+
+/**
  * "How enriched is this event?" — a hybrid signal used to sort events
  * within each day group in the feed (see `groupByDay` in
- * `infinite-feed.tsx`). Higher = more enriched. Tuned so completeness
- * (do we have artist links / hero image?) and popularity (how big are
- * the acts?) land on roughly the same scale, so neither dominates.
+ * `infinite-feed.tsx`). Higher = more enriched.
  *
  * Why within-day rather than globally: the feed's primary ordering is
  * chronological, which is load-bearing for keyset pagination on
@@ -47,10 +64,10 @@ type EnrichableEvent = {
  *   - completeness: +10 per lineup artist with any streaming link
  *     (spotify / soundcloud / bandcamp), +5 if the event has a hero
  *     image. For a typical 3-artist well-enriched event, ~35.
- *   - popularity: `spotify_popularity` summed raw (0–100/artist), plus
- *     a log-scaled contribution from soundcloud + bandcamp follower
- *     counts (`log2(1 + followers) * 2`) so a viral 100k-follower act
- *     doesn't completely drown out a solid 2k one.
+ *   - popularity (× POPULARITY_WEIGHT): `spotify_popularity` summed raw
+ *     (0–100/artist), plus a log-scaled contribution from soundcloud +
+ *     bandcamp follower counts (`log2(1 + followers) * 2`) so a viral
+ *     100k-follower act doesn't completely drown out a solid 2k one.
  *
  * Note: this mutates nothing and reads only the structural fields
  * above, so it's safe to call during render.
@@ -77,5 +94,5 @@ export function enrichmentScore(event: EnrichableEvent): number {
     }
   }
 
-  return completeness + popularity;
+  return completeness + popularity * POPULARITY_WEIGHT;
 }
