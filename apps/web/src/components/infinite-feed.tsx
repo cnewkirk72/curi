@@ -11,13 +11,20 @@
 // bound to the serialized filter state — that way we don't have to
 // reconcile an in-flight "load more" against a URL change the user
 // just performed. Parent owns the cache-bust; we just append.
+//
+// Types come from `events.ts` via `import type { ... }`, which is
+// erased at compile time — so this client module never pulls the
+// server-only supabase client into the bundle. `enrichmentScore`
+// lives in the separate `lib/enrichment.ts` (also server-free) for
+// the same reason.
 
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import { Loader2 } from 'lucide-react';
 import { EventCard } from '@/components/event-card';
 import { nycDayKey, groupLabel } from '@/lib/format';
 import { cn } from '@/lib/utils';
-import { enrichmentScore, type FeedCursor, type FeedEvent } from '@/lib/events';
+import type { FeedCursor, FeedEvent } from '@/lib/events';
+import { enrichmentScore } from '@/lib/enrichment';
 import type { FilterState } from '@/lib/filters';
 import { loadMoreEvents } from '@/app/actions/load-more-events';
 

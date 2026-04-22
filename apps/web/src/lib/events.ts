@@ -1,6 +1,11 @@
 // Event data fetchers. Server-only — these pull through the anon
 // Supabase client from server.ts, so RLS applies and any future
 // "private event" rows would be automatically gated.
+//
+// Note: `enrichmentScore` lives in `lib/enrichment.ts`, not here.
+// That module is client-safe; this one isn't (`createClient` imports
+// `next/headers`), and Vercel's build fails if a client component
+// reaches server-only modules through the import graph.
 
 import { createClient } from '@/lib/supabase/server';
 import {
@@ -27,9 +32,10 @@ export type LineupArtist = {
   spotify_url: string | null;
   spotify_popularity: number | null;
   // Additional enrichment signals from migration 0010. We fetch these
-  // so `enrichmentScore` (below) can compute a hybrid "how well do we
-  // know this event's lineup" metric — they're not rendered on the card
-  // directly, but drive the default feed sort within each day group.
+  // so `enrichmentScore` (in lib/enrichment.ts) can compute a hybrid
+  // "how well do we know this event's lineup" metric — they're not
+  // rendered on the card directly, but drive the default feed sort
+  // within each day group.
   soundcloud_url: string | null;
   soundcloud_followers: number | null;
   bandcamp_url: string | null;
@@ -497,57 +503,4 @@ export async function getEventById(id: string): Promise<DetailEvent | null> {
         return a.position - b.position;
       }),
   };
-}
-
-/**
- * "How enriched is this event?" — a hybrid signal used to sort events
- * within each day group in the feed (see `groupByDay` in
- * `infinite-feed.tsx`). Higher = more enriched. Tuned so completeness
- * (do we have artist links / hero image?) and popularity (how big are
- * the acts?) land on roughly the same scale, so neither dominates.
- *
- * Why within-day rather than globally: the feed's primary ordering is
- * chronological, which is load-bearing for keyset pagination on
- * `(starts_at, id)`. Swapping that for a popularity order would break
- * the cursor contract. Resorting each day's bucket client-side keeps
- * pagination intact and still surfaces the richest events at the top
- * of each day.
- *
- * Scoring components:
- *   - completeness: +10 per lineup artist with any streaming link
- *     (spotify / soundcloud / bandcamp), +5 if the event has a hero
- *     image. For a typical 3-artist well-enriched event, ~35.
- *   - popularity: `spotify_popularity` summed raw (0–100/artist), plus
- *     a log-scaled contribution from soundcloud + bandcamp follower
- *     counts (`log2(1 + followers) * 2`) so a viral 100k-follower act
- *     doesn't completely drown out a solid 2k one.
- *
- * Note: this mutates nothing and reads only the fields already on
- * `FeedEvent`, so it's safe to call during render.
- */
-export function enrichmentScore(
-  event: Pick<FeedEvent, 'image_url' | 'lineup'>,
-): number {
-  const lineup = event.lineup;
-
-  const artistsWithAnyLink = lineup.filter(
-    (a) =>
-      a.spotify_url !== null ||
-      a.soundcloud_url !== null ||
-      a.bandcamp_url !== null,
-  ).length;
-  const completeness = artistsWithAnyLink * 10 + (event.image_url ? 5 : 0);
-
-  let popularity = 0;
-  for (const a of lineup) {
-    popularity += a.spotify_popularity ?? 0;
-    if (a.soundcloud_followers) {
-      popularity += Math.log2(1 + a.soundcloud_followers) * 2;
-    }
-    if (a.bandcamp_followers) {
-      popularity += Math.log2(1 + a.bandcamp_followers) * 2;
-    }
-  }
-
-  return completeness + popularity;
 }
