@@ -55,9 +55,13 @@ export async function DesktopTopNav() {
           aria-label="Curi home"
           className="flex items-center gap-2.5 rounded-pill px-1 transition hover:opacity-80"
         >
-          <span className="font-display text-xl font-semibold tracking-display text-fg-primary">
+          {/* h1 here (rather than span) so desktop pages keep a page-level
+              heading after AppHeader's mobile h1 is gated out by lg:hidden.
+              Mobile + desktop headers are mutually exclusive via breakpoint
+              gating, so only one h1 ever renders per page. */}
+          <h1 className="font-display text-xl font-semibold tracking-display text-fg-primary">
             curi
-          </span>
+          </h1>
           <span className="rounded-pill border border-border px-2 py-0.5 text-2xs uppercase tracking-widest text-fg-muted">
             NYC
           </span>
