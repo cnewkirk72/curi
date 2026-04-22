@@ -24,7 +24,12 @@ type SavedRow = {
     price_min: number | null;
     price_max: number | null;
     ticket_url: string | null;
-    venue: { name: string; neighborhood: string | null; slug: string } | null;
+    venue: {
+      name: string;
+      neighborhood: string | null;
+      slug: string;
+      image_url: string | null;
+    } | null;
     event_artists:
       | {
           position: number;
@@ -74,7 +79,8 @@ export async function getSavedEvents(): Promise<FeedEvent[]> {
         venue:venues (
           name,
           neighborhood,
-          slug
+          slug,
+          image_url
         ),
         event_artists (
           position,
@@ -125,6 +131,7 @@ export async function getSavedEvents(): Promise<FeedEvent[]> {
             name: e.venue.name,
             neighborhood: e.venue.neighborhood,
             slug: e.venue.slug,
+            image_url: e.venue.image_url,
           }
         : null,
       lineup: (e.event_artists ?? [])

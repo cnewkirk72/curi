@@ -10,6 +10,15 @@
 // The card is a <Link> so the whole surface is tappable. Press feedback
 // is the standard active:scale-[0.98] from MASTER.md.
 //
+// Hero fallback chain (Phase 3.17 — see `resolveHero` below). Scrapers
+// don't always return a hero image (~13% of upcoming events on the
+// 30-day window), and a grid full of plain gradient tiles reads as
+// "no data" even when we have plenty of lineup richness. We cascade
+// through the best available visual asset instead of jumping straight
+// to the gradient — headliner Spotify avatar → any lineup Spotify
+// avatar → venue photo → gradient. Each step degrades gracefully, and
+// the gradient is still there as the ultimate floor.
+//
 // Avatar cluster: each circle renders a Spotify image when the Phase 4f
 // enrichment has populated `artist.image_url`, else a deterministic
 // tinted-initials fallback. This degrades gracefully during the rolling
@@ -46,6 +55,53 @@ function gradientFor(genres: string[]): string {
   return DEFAULT_GRADIENT;
 }
 
+/**
+ * Resolve the best available hero image for the card, in priority:
+ *
+ *   1. `event.image_url` — the scraped/promoter-provided hero. Always
+ *      wins when present, because it's been curated for this specific
+ *      event (flyer, show art, etc.).
+ *   2. Headliner Spotify avatar — the first `is_headliner` artist in
+ *      the lineup with a populated `image_url`. A square artist photo
+ *      in a 5:3 slot reads as "this headliner is the story" even
+ *      when cropped.
+ *   3. Any lineup Spotify avatar — falls through to the first artist
+ *      with an avatar regardless of headliner flag, since scrapers
+ *      don't always set `is_headliner` correctly on single-artist
+ *      bills.
+ *   4. `venue.image_url` — the per-venue hero photo from migration
+ *      0016. Backfilled for the handful of venues that drive most
+ *      "no artist avatar" cards (Public Records, Bossa Nova, etc.).
+ *   5. `null` — caller draws the gradient placeholder.
+ *
+ * Returns the resolved URL plus a `kind` tag so the caller can tune
+ * crop/object-position per source. Spotify avatars are square, so we
+ * `object-cover` + `object-top` them so faces stay in frame when
+ * cropped to 5:3.
+ */
+type HeroSource =
+  | { kind: 'event'; url: string }
+  | { kind: 'artist'; url: string }
+  | { kind: 'venue'; url: string }
+  | { kind: 'none' };
+
+function resolveHero(event: FeedEvent): HeroSource {
+  if (event.image_url) return { kind: 'event', url: event.image_url };
+
+  const headlinerAvatar = event.lineup.find(
+    (a) => a.is_headliner && a.image_url,
+  )?.image_url;
+  if (headlinerAvatar) return { kind: 'artist', url: headlinerAvatar };
+
+  const anyAvatar = event.lineup.find((a) => a.image_url)?.image_url;
+  if (anyAvatar) return { kind: 'artist', url: anyAvatar };
+
+  if (event.venue?.image_url)
+    return { kind: 'venue', url: event.venue.image_url };
+
+  return { kind: 'none' };
+}
+
 export function EventCard({
   event,
   saved = false,
@@ -63,6 +119,7 @@ export function EventCard({
   const genres = event.genres.slice(0, 3);
   const lineup = event.lineup.slice(0, 3);
   const moreCount = Math.max(0, event.lineup.length - lineup.length);
+  const hero = resolveHero(event);
 
   return (
     <Link
@@ -74,17 +131,44 @@ export function EventCard({
     >
       {/* Hero */}
       <div className="relative aspect-[5/3] w-full overflow-hidden">
-        {event.image_url ? (
+        {hero.kind !== 'none' ? (
           // Raw <img> for now; Phase 3.7 will introduce next/image with
           // the remotePatterns allowlist once we've catalogued the image
           // CDNs our scrapers actually return.
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={event.image_url}
-            alt=""
-            loading="lazy"
-            className="h-full w-full object-cover"
-          />
+          <>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={hero.url}
+              alt=""
+              loading="lazy"
+              className={cn(
+                'h-full w-full object-cover',
+                // Spotify artist avatars are square head-shots. When
+                // cropped to 5:3, the face often sits slightly above
+                // center — anchor to top so chins don't get guillotined.
+                hero.kind === 'artist' && 'object-top',
+              )}
+            />
+            {/* Source-specific scrim + chip.
+                - Artist: subtle bottom gradient + tiny "FEATURING" tag
+                  makes clear this is an artist photo, not flyer art, so
+                  the card still reads as "event-centric" not "artist-
+                  centric." Keeps the visual honest.
+                - Venue: same treatment with "VENUE" tag for the same
+                  reason — the eye shouldn't mistake a Public Records
+                  interior shot for a specific show's art. */}
+            {hero.kind !== 'event' && (
+              <>
+                <div
+                  aria-hidden
+                  className="pointer-events-none absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-bg-deep/70 to-transparent"
+                />
+                <span className="absolute bottom-3 left-3 rounded-pill bg-bg-deep/70 px-2 py-0.5 text-[10px] font-medium uppercase tracking-widest text-fg-primary/90 backdrop-blur">
+                  {hero.kind === 'artist' ? 'Featuring' : 'Venue'}
+                </span>
+              </>
+            )}
+          </>
         ) : (
           <div
             className={cn(

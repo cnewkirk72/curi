@@ -62,6 +62,11 @@ export type FeedEvent = {
     name: string;
     neighborhood: string | null;
     slug: string;
+    // Venue hero photo, used by the card's fallback chain when the
+    // event has no image_url and no lineup artist has a Spotify
+    // avatar. See `event-card.tsx` → `resolveHero`. Added in
+    // migration 0016; nullable until the per-venue backfill lands.
+    image_url: string | null;
   } | null;
   lineup: LineupArtist[];
 };
@@ -91,6 +96,7 @@ export type DetailEvent = {
     lat: number | null;
     lng: number | null;
     website: string | null;
+    image_url: string | null;
   } | null;
   lineup: LineupArtist[];
 };
@@ -113,7 +119,12 @@ type EventRow = {
   price_min: number | null;
   price_max: number | null;
   ticket_url: string | null;
-  venue: { name: string; neighborhood: string | null; slug: string } | null;
+  venue: {
+    name: string;
+    neighborhood: string | null;
+    slug: string;
+    image_url: string | null;
+  } | null;
   event_artists:
     | {
         position: number;
@@ -187,7 +198,8 @@ export async function getUpcomingEvents({
       venue:venues (
         name,
         neighborhood,
-        slug
+        slug,
+        image_url
       ),
       event_artists (
         position,
@@ -329,6 +341,7 @@ export async function getUpcomingEvents({
           name: row.venue.name,
           neighborhood: row.venue.neighborhood,
           slug: row.venue.slug,
+          image_url: row.venue.image_url,
         }
       : null,
     lineup: (row.event_artists ?? [])
@@ -374,6 +387,7 @@ type EventDetailDbRow = {
         lat: number | null;
         lng: number | null;
         website: string | null;
+        image_url: string | null;
       }
     | null;
   event_artists:
@@ -428,7 +442,8 @@ export async function getEventById(id: string): Promise<DetailEvent | null> {
         neighborhood,
         lat,
         lng,
-        website
+        website,
+        image_url
       ),
       event_artists (
         position,
@@ -478,6 +493,7 @@ export async function getEventById(id: string): Promise<DetailEvent | null> {
           lat: row.venue.lat,
           lng: row.venue.lng,
           website: row.venue.website,
+          image_url: row.venue.image_url,
         }
       : null,
     lineup: (row.event_artists ?? [])
