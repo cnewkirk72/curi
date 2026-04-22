@@ -20,6 +20,7 @@ import { cn } from '@/lib/utils';
 import {
   activeFilterCount,
   hasActiveFilters,
+  labelForDateRange,
   labelForGenre,
   labelForSubgenre,
   labelForVibe,
@@ -47,7 +48,9 @@ export function FilterBar() {
   }
 
   function clearWhen() {
-    commit({ ...filters, when: 'all' });
+    // Also nuke any custom range — removing the "when" chip is the
+    // canonical "no time filter" action.
+    commit({ ...filters, when: 'all', date_from: null, date_to: null });
   }
   function removeGenre(slug: string) {
     // Mirror the filter-sheet's cascade: removing a parent also
@@ -67,11 +70,20 @@ export function FilterBar() {
     commit({ ...filters, subgenres: filters.subgenres.filter((s) => s !== slug) });
   }
   function clearAll() {
-    commit({ when: 'all', genres: [], vibes: [], subgenres: [] });
+    commit({
+      when: 'all',
+      date_from: null,
+      date_to: null,
+      genres: [],
+      vibes: [],
+      subgenres: [],
+    });
   }
 
   return (
-    <div className="-mx-5 overflow-x-auto px-5">
+    // Mobile-only: desktop sidebar takes over the filter UX at lg+,
+    // so the inline chip row would just be redundant noise.
+    <div className="-mx-5 overflow-x-auto px-5 lg:hidden">
       {/* no-wrap horizontal row — chips overflow into a scroll region
           rather than wrapping, so the card list below stays vertically
           stable regardless of how many filters are on. */}
@@ -102,7 +114,10 @@ export function FilterBar() {
             keep the chip row readable. */}
         {filters.when !== 'all' && (
           <ActiveChip onRemove={clearWhen}>
-            {labelForWhen(filters.when)}
+            {/* Custom range renders the formatted "Apr 25 – Apr 27"
+                label so the chip is self-describing; presets fall
+                back to labelForWhen ("Tonight", etc.). */}
+            {labelForDateRange(filters) ?? labelForWhen(filters.when)}
           </ActiveChip>
         )}
         {filters.genres.map((slug) => (

@@ -15,11 +15,13 @@
 import Link from 'next/link';
 import { AppHeader } from '@/components/app-header';
 import { BottomNav } from '@/components/bottom-nav';
+import { DesktopTopNav } from '@/components/desktop/desktop-top-nav';
 import { EventCard } from '@/components/event-card';
 import { getSavedEvents } from '@/lib/saves';
 import { createClient } from '@/lib/supabase/server';
 import { nycDayKey, groupLabel } from '@/lib/format';
 import type { FeedEvent } from '@/lib/events';
+import { cn } from '@/lib/utils';
 
 export const dynamic = 'force-dynamic';
 
@@ -57,14 +59,23 @@ export default async function SavedPage() {
 
   return (
     <div className="relative min-h-dvh">
-      <main className="relative mx-auto max-w-[430px] px-5 pb-28 pt-10">
-        {/* Ambient violet blob for brand continuity with home. Single
-            blob (home has two) because the Saved list is usually
-            shorter and we don't want the backdrop competing with
-            sparse content on a 2-event list. */}
+      <div className="hidden lg:block">
+        <DesktopTopNav />
+      </div>
+
+      <main
+        className={cn(
+          'relative mx-auto max-w-[430px] px-5 pb-28 pt-10',
+          // Desktop: widen to the same container as the feed so the
+          // two pages feel like siblings. No sidebar here — /saved is
+          // already a curated slice, so filters would be friction.
+          'lg:max-w-5xl lg:px-8 lg:pb-16 lg:pt-10',
+        )}
+      >
+        {/* Ambient violet blob — mobile only, same reasoning as feed. */}
         <div
           aria-hidden
-          className="pointer-events-none absolute -right-16 top-10 h-60 w-60 rounded-full bg-violet/15 blur-3xl animate-blob"
+          className="pointer-events-none absolute -right-16 top-10 h-60 w-60 rounded-full bg-violet/15 blur-3xl animate-blob lg:hidden"
         />
 
         <AppHeader />
@@ -99,7 +110,7 @@ export default async function SavedPage() {
   );
 }
 
-// ─── Sub-views ──────────────────────────────────────────────────────
+// ─── Sub-views ───────────────────────────────────────
 
 function Feed({ groups }: { groups: DayGroup[] }) {
   return (
@@ -117,7 +128,14 @@ function Feed({ groups }: { groups: DayGroup[] }) {
               {events.length} {events.length === 1 ? 'event' : 'events'}
             </span>
           </div>
-          <div className="space-y-4">
+          <div
+            className={cn(
+              'space-y-4',
+              // Desktop: match the home feed's responsive grid.
+              'lg:grid lg:grid-cols-2 lg:gap-5 lg:space-y-0',
+              'xl:grid-cols-3',
+            )}
+          >
             {events.map((ev) => (
               // Every event on this screen is saved by definition, so
               // `saved={true}` is hard-coded. signedIn is also true

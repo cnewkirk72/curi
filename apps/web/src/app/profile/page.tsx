@@ -16,6 +16,7 @@ import { redirect } from 'next/navigation';
 import { Bookmark, ArrowUpRight } from 'lucide-react';
 import { AppHeader } from '@/components/app-header';
 import { BottomNav } from '@/components/bottom-nav';
+import { DesktopTopNav } from '@/components/desktop/desktop-top-nav';
 import { PreferencesForm } from '@/components/preferences-form';
 import { ProfileForm } from '@/components/profile-form';
 import { createClient } from '@/lib/supabase/server';
@@ -67,7 +68,15 @@ export default async function ProfilePage() {
 
   return (
     <div className="relative min-h-dvh">
-      <main className="relative mx-auto max-w-[430px] px-5 pb-28 pt-10">
+      <div className="hidden lg:block">
+        <DesktopTopNav />
+      </div>
+
+      {/* Container: keep narrow on desktop too — Profile is a
+          form-heavy screen and 100ch-wide form fields feel awkward.
+          Slightly wider than mobile (~520px) gives the identity card
+          some breathing room without turning the form into a table. */}
+      <main className="relative mx-auto max-w-[430px] px-5 pb-28 pt-10 lg:max-w-[560px] lg:pb-16 lg:pt-10">
         <AppHeader />
 
         <section className="mt-4 mb-8 animate-enter-up">
@@ -108,7 +117,7 @@ export default async function ProfilePage() {
           </div>
         </div>
 
-        {/* ── Stats / shortcuts ───────────────────────────────────── */}
+        {/* ── Stats / shortcuts ───────────────────────── */}
         <section className="mt-6">
           <h3 className="mb-3 font-display text-2xs font-medium uppercase tracking-widest text-fg-muted">
             Your activity
@@ -132,7 +141,7 @@ export default async function ProfilePage() {
           </Link>
         </section>
 
-        {/* ── Identity editor ─────────────────────────────────────── */}
+        {/* ── Identity editor ──────────────────────────── */}
         {/* Always render even when `profile` is null — getMyProfile
             returns null if the handle_new_user trigger failed. The
             form falls back to empty strings as drafts, so saving
@@ -154,7 +163,7 @@ export default async function ProfilePage() {
           emailFallback={user.email ?? null}
         />
 
-        {/* ── Preferences ─────────────────────────────────────────── */}
+        {/* ── Preferences ────────────────────────────── */}
         <PreferencesForm initial={prefs} />
 
         <form action={signOut} className="mt-8">

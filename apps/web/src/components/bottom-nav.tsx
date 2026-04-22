@@ -41,6 +41,11 @@ export function BottomNav() {
         'shadow-nav-top',
         // Respect the iOS home-indicator safe area
         'pb-[env(safe-area-inset-bottom)]',
+        // Desktop: the DesktopTopNav takes over, hide the bottom nav
+        // entirely so it doesn't eat 64px at the bottom of every
+        // lg+ viewport. Mobile PWA (iOS/Android) never hits `lg`,
+        // so the home-screen app is unaffected.
+        'lg:hidden',
       )}
     >
       <ul className="flex items-stretch justify-around px-2 pt-2">
