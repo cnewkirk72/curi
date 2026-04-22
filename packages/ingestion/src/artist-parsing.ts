@@ -88,6 +88,26 @@ export const NOISE_EXACT: ReadonlySet<string> = new Set([
   'headliners',
   'djs',
   'host',
+  'special guest dj',
+  // Phase 4f.9 — bare-genre rows that leaked in as "artists". All either
+  // matched Spotify to an unrelated entity at popularity=0 or never matched
+  // at all; keeping them pollutes genre-tag overlap scoring downstream.
+  'hip hop',
+  'hip-hop',
+  'hiphop',
+  'r&b',
+  'rnb',
+  'reggaeton',
+  'afrobeats',
+  'afrobeat',
+  'soul summit',
+  'dance class',
+  'latin party',
+  // Naked plural-weekday series (can't be regex'd without clobbering real
+  // bands like "The Sundays" / "Happy Mondays"). Add new series by exact
+  // name as they surface in scrapes.
+  'refuge fridays',
+  'refuge saturdays',
 ]);
 
 /**
@@ -112,6 +132,83 @@ export const EVENT_WORD_PATTERNS: readonly RegExp[] = [
   /\bfilm\s+(?:screening|premiere)\b/i,
   /\bfundraiser\b/i,
   /\btalk\b(?!\s+box)/i, // "talk" but not "talk box"
+
+  // ── Phase 4f.9 expansions ────────────────────────────────────────────────
+  // All of these require a trigger word IN COMBINATION with a second event
+  // descriptor — so "Party Favor", "Party Dad", "Dr. Boat", "Ian Friday",
+  // "The Sundays", "Happy Mondays" all PASS. The audit run also has a
+  // Tier-2 Spotify-confidence bypass (audit.ts) that protects any row that
+  // DID match Spotify with popularity ≥ 20, so a future edge-case legit
+  // artist who somehow hits these patterns still survives cleanup.
+
+  // "Ellen Allien All Night Long", "Timmy Regisford All Day Long", etc.
+  // Anchored phrase — won't match a bare "all night" song title.
+  /\ball\s+(?:day|night|morning)\s+long\b/i,
+
+  // "¡Baila Bachata! Dance Class", "Bruk It! Caribbean Dance Class".
+  /\bdance\s+(?:class|lesson|workshop|bootcamp)\b/i,
+
+  // "REGGAETON Boat Party NYC Yacht Cruise", "R&B Boat Ride Party Cruise".
+  // Requires boat/yacht + event-descriptor. "Dr. Boat", "Boatshop" survive.
+  /\b(?:boat|yacht)\s+(?:party|cruise|ride)\b/i,
+
+  // "420 rooftop party", "Rooftop Saturdays - Afrobeats", etc.
+  // Bare "rooftop" passes — requires a recurring-event descriptor after.
+  /\brooftop\s+(?:party|event|series|mondays?|tuesdays?|wednesdays?|thursdays?|fridays?|saturdays?|sundays?)\b/i,
+
+  // "Cinco De Mayo Boat Party Yacht Cruise" etc. Whole phrase, so no
+  // false positive on an artist who happens to have "mayo" in their name.
+  /\bcinco\s+de\s+mayo\b/i,
+
+  // NYE / Halloween / Valentine's Day event tags. Christmas / Easter
+  // deliberately excluded — too much risk of legit song or artist overlap.
+  /\bnye\b|\bnew\s+year'?s?\s+eve\b|\bhalloween\b|\bvalentine'?s\s+(?:day|party)\b/i,
+
+  // "Reggae Dance Party NYC", "LET IT HAPPEN (TAME IMPALA DANCE PARTY)".
+  // Anchored to the bigram — "party" alone is safe, "Party Favor" passes.
+  /\bdance\s+party\b/i,
+
+  // "Willie Colón Birthday Tribute", "TUPAC Hip Hop Yacht Party Notorious
+  // Birthday Tribute Boat Cruise". Requires birthday + event descriptor.
+  /\bbirthday\s+(?:tribute|bash|party|celebration)\b/i,
+
+  // Plural-weekday recurring series: "Rooftop Saturdays - Afrobeats",
+  // "Reggaeton Rooftop Fridays - Friday", "Refuge Saturdays. Lineup TBA".
+  // MUST have a tail (dash / dot / colon / comma, or a follow-on word like
+  // "at" / "lineup" / "tba") so bands named "The Sundays" / "Happy Mondays"
+  // / "The Tuesdays" with a plural-weekday at end-of-string PASS. A naked
+  // "<Word> Fridays" with no tail will slip through the classifier — we
+  // accept that trade, since killing a real band is worse than carrying
+  // one junk row that the next audit pass can hand-delete.
+  /\b(?:mondays|tuesdays|wednesdays|thursdays|fridays|saturdays|sundays)\s*(?:[-–—.:,]|\s+(?:at|@|tba|with|feat|lineup))/i,
+
+  // Venue giveaways — rows that are secretly a venue name.
+  /\bnightclub\b/i,
+
+  // "- Brooklyn Warehouse" (scraper left the leading delimiter).
+  /^\s*[-–—]\s/,
+
+  // Genre + event-descriptor: "Reggaeton Party NYC", "Champagne Reggaeton
+  // Party...". Targets a narrow bigram so "Reggaeton" alone (handled as
+  // NOISE_EXACT) and legit Latin acts pass.
+  /\b(?:reggaeton|latin|afrobeats|hip\s*hop|r&b)\s+(?:rave|party|night|boat|dance)\b/i,
+
+  // "(18+", "(21" — scraper truncated mid-string before closing paren. The
+  // close-paren check prevents "Hugo (US)" etc. from matching.
+  /\(\s*(?:18|21)\+?\s*$/,
+  /\(\s*(?:18|21)\+?(?=\s|$)/,
+
+  // "Refuge Saturdays. Lineup TBA", "More acts TBA".
+  /\blineup\s+tba\b/i,
+
+  // Month-day date leaks: "Apr 25 in the Lower East Side", "Apr 24th",
+  // "Friday Bachata Night - Traditional Bachata - Apr 24". Bigram anchor
+  // requires a number after the month name, so "May" / "June" as artist
+  // names pass cleanly.
+  /\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)\.?\s+\d{1,2}(?:st|nd|rd|th)?\b/i,
+
+  // Trailing ordinal date: "Apr 24th", "Opening Day - Sun. May 17th".
+  /\b\d{1,2}(?:st|nd|rd|th)\s*$/,
 ];
 
 export function looksLikeEventTitle(piece: string): boolean {
