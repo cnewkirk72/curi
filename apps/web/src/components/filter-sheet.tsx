@@ -445,14 +445,20 @@ function CustomDateDisclosure({
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
         className={cn(
-          'inline-flex items-center gap-1.5 rounded-pill border px-3 py-1 text-[11px] font-medium',
-          'transition duration-micro ease-expo',
+          'inline-flex items-center gap-1.5 rounded-pill border px-4 py-2 text-xs font-medium',
+          'transition duration-micro ease-expo active:scale-[0.96]',
           expanded
-            ? 'border-accent/40 bg-accent-chip text-accent'
-            : 'border-border bg-bg-elevated text-fg-muted hover:text-fg-primary',
+            ? 'border-accent/40 bg-accent-chip text-accent shadow-glow-sm'
+            : // Inactive state gets a very soft cyan glow + accent-tinted
+              // border so the "custom date" option reads as discoverable
+              // without competing with the preset pills for primacy. Hover
+              // escalates subtly.
+              'border-accent/25 bg-bg-elevated text-fg-muted shadow-[0_0_14px_rgba(34,211,238,0.12)] hover:border-accent/40 hover:text-fg-primary hover:shadow-[0_0_18px_rgba(34,211,238,0.18)]',
         )}
       >
-        <CalendarRange className="h-3 w-3" />
+        <CalendarRange
+          className={cn('h-3.5 w-3.5', !expanded && 'text-accent/80')}
+        />
         {rangeLabel ?? 'Pick a specific date'}
       </button>
 
