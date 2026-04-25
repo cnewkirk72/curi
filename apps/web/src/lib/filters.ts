@@ -8,7 +8,7 @@
 // sheet keeps a local draft state and only commits via router.push
 // on Apply — that's why we need the round-trip.
 //
-// ── Phase 3.18 vocabulary rebuild ───────────────────────────────────
+// ── Phase 3.18 vocabulary rebuild ─────────────────────────────────
 //
 // Genres: rebuilt from the post-Phase-3.15 NYC-wide data. Default-14
 // visible row + 10 in "More genres" (collapse/expand). Slugs match
@@ -688,6 +688,74 @@ export function labelForSubgenre(slug: string): string {
     if (hit) return hit.label;
   }
   return slug;
+}
+
+/**
+ * Compute the calendar-display date for the current filter state — i.e.
+ * which day the date picker should highlight given the active filter.
+ *
+ * Distinct from `dateWindowFor`, which returns the actual filter window
+ * used to scope the SQL query: this helper is for *visual feedback* in
+ * the date picker only. The mapping mirrors how a user thinks about
+ * each preset:
+ *
+ *   - `tonight`  → today (the night IS the current calendar day)
+ *   - `tomorrow` → tomorrow
+ *   - `weekend`  → upcoming Friday (start of the Fri-Mon window per
+ *                  `dateWindowFor`)
+ *   - `week`     → today (start of the now → next-Mon window)
+ *   - `custom`   → date_from (or null if not set yet)
+ *   - `all`      → null (no highlight)
+ *
+ * Clicking the highlighted day in the picker still switches the state
+ * to `when='custom'` with that date as `date_from` — an intentional
+ * promotion from "the preset's 24-hour window" to "from this day
+ * onward" — so the visual highlight is a stable signal that flows
+ * cleanly into custom-range mode if the user wants more control.
+ *
+ * Implementation note: this helper duplicates a small amount of date
+ * math from `dateWindowFor` rather than calling into it. That's
+ * deliberate — `dateWindowFor` returns ISO timestamps tied to the 4am
+ * day boundary, while the picker wants `YYYY-MM-DD` calendar dayKeys.
+ * The two flavors of "what day is the start of this window" are close
+ * but not identical (the 4am boundary can shift by one calendar day
+ * for late-night events), and the picker's user-facing semantic is
+ * the calendar day, not the technical window-start instant.
+ */
+export function displayDateForFilter(
+  state: FilterState,
+  now: Date = new Date(),
+): string | null {
+  // Custom: use the user's explicit pick (null when they haven't
+  // picked yet, e.g., entered custom mode via the picker disclosure
+  // before tapping a day).
+  if (state.when === 'custom') {
+    return state.date_from;
+  }
+
+  const todayKey = nycDayKey(now.toISOString());
+
+  switch (state.when) {
+    case 'tonight':
+      return todayKey;
+    case 'tomorrow':
+      return addDays(todayKey, 1);
+    case 'week':
+      return todayKey;
+    case 'weekend': {
+      // Mirrors dateWindowFor's 'weekend' branch: this Friday, even
+      // when we're already mid-weekend (Sat/Sun in the current week).
+      const wd = nycWeekday(now);
+      let daysToFri: number;
+      if (wd >= 1 && wd <= 5) daysToFri = 5 - wd;
+      else if (wd === 6) daysToFri = -1;
+      else daysToFri = -2;
+      return addDays(todayKey, daysToFri);
+    }
+    case 'all':
+    default:
+      return null;
+  }
 }
 
 // ── Date window math (NYC-aware) ───────────────────────────────────
