@@ -35,8 +35,16 @@ export interface PopularityResult {
   attempted: boolean;
   soundcloudUrl?: string | null;
   soundcloudFollowers?: number | null;
+  /** og:image avatar from the SoundCloud profile (i1.sndcdn.com).
+   *  Captured opportunistically from the same Firecrawl scrape — used
+   *  to backfill `artists.soundcloud_image_url` as a fallback for
+   *  `spotify_image_url` in the lineup avatar projection. */
+  soundcloudImageUrl?: string | null;
   bandcampUrl?: string | null;
   bandcampFollowers?: number | null;
+  /** og:image avatar from the Bandcamp profile (f4.bcbits.com).
+   *  Same role as soundcloudImageUrl, one tier down the cascade. */
+  bandcampImageUrl?: string | null;
   /** URLs consulted during discovery — useful for post-run audit. */
   sources: string[];
 }
@@ -73,7 +81,7 @@ function isSlugMatch(artistName: string, url: string): boolean {
 async function tryPlatform(
   artistName: string,
   platform: 'soundcloud' | 'bandcamp',
-): Promise<{ url: string; followers: number | null } | null> {
+): Promise<{ url: string; followers: number | null; imageUrl: string | null } | null> {
   let candidates;
   try {
     candidates = await findProfileUrls(artistName, platform, 3);
@@ -98,13 +106,18 @@ async function tryPlatform(
         return {
           url: r.canonicalUrl ?? cand.url,
           followers: r.followers ?? null,
+          imageUrl: r.imageUrl ?? null,
         };
       } catch {
         // Firecrawl failed (404, timeout, etc). Keep the URL but no
         // follower count — the monthly popularity cron can retry. A
         // failed scrape sorts behind any successful scrape, so we
         // only fall back to it if every candidate failed.
-        return { url: cand.url, followers: null as number | null };
+        return {
+          url: cand.url,
+          followers: null as number | null,
+          imageUrl: null as string | null,
+        };
       }
     }),
   );
@@ -128,7 +141,7 @@ export async function discoverPopularity(
 ): Promise<PopularityResult> {
   const sources: string[] = [];
   const sc = await tryPlatform(artistName, 'soundcloud');
-  let bc: { url: string; followers: number | null } | null = null;
+  let bc: { url: string; followers: number | null; imageUrl: string | null } | null = null;
   if (!sc) {
     bc = await tryPlatform(artistName, 'bandcamp');
   }
@@ -140,8 +153,10 @@ export async function discoverPopularity(
     attempted: true,
     soundcloudUrl: sc?.url ?? null,
     soundcloudFollowers: sc?.followers ?? null,
+    soundcloudImageUrl: sc?.imageUrl ?? null,
     bandcampUrl: bc?.url ?? null,
     bandcampFollowers: bc?.followers ?? null,
+    bandcampImageUrl: bc?.imageUrl ?? null,
     sources,
   };
 }

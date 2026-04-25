@@ -66,7 +66,7 @@ async function firecrawlFetch<T>(path: string, body: unknown): Promise<T> {
   throw new Error(`firecrawl exhausted retries on ${path}: ${lastErr}`);
 }
 
-// ── public API ──────────────────────────────────────────────
+// ── public API ───────────────────────────────────────────
 
 export interface SelfTagsResult {
   /** Genre-style hashtags aggregated across recent tracks, ranked by frequency. */
@@ -84,6 +84,13 @@ export interface SelfTagsResult {
    *  from the og:url / canonical link). Null when the page didn't
    *  surface one. Used for URL normalization across redirects. */
   canonicalUrl: string | null;
+  /** Profile avatar URL pulled from `<meta property="og:image">` —
+   *  SoundCloud serves these from i1.sndcdn.com, Bandcamp from
+   *  f4.bcbits.com. Used as a fallback for `artists.spotify_image_url`
+   *  in the lineup avatar projection. Null when the page didn't
+   *  expose an og:image (rare — both platforms set it on every
+   *  profile we've seen). */
+  imageUrl: string | null;
   /** Resolved source URL Firecrawl actually scraped. */
   sourceUrl: string;
 }
@@ -98,6 +105,7 @@ interface FirecrawlScrapeResponse {
       profileGenre?: string | null;
       followers?: number | null;
       canonicalUrl?: string | null;
+      imageUrl?: string | null;
     };
     metadata?: {
       sourceURL?: string;
@@ -137,7 +145,12 @@ export async function fetchArtistSelfTags(
         `abbreviated numbers into raw integers: "12.5K" → 12500, ` +
         `"1,234" → 1234, "3.1M" → 3100000. Return null if not visible.\n` +
         `(5) the canonical profile URL as displayed on the page (check ` +
-        `<link rel="canonical"> or og:url meta tag).`,
+        `<link rel="canonical"> or og:url meta tag).\n` +
+        `(6) the artist's profile avatar image URL from the ` +
+        `<meta property="og:image"> tag (SoundCloud serves these ` +
+        `from i1.sndcdn.com, Bandcamp from f4.bcbits.com). Return ` +
+        `the full URL exactly as it appears in the meta tag. Return ` +
+        `null if no og:image is present.`,
       schema: {
         type: 'object',
         properties: {
@@ -164,6 +177,11 @@ export async function fetchArtistSelfTags(
             type: 'string',
             description:
               'Canonical profile URL from the page, or empty string if none',
+          },
+          imageUrl: {
+            type: 'string',
+            description:
+              'Profile avatar image URL from <meta property="og:image">, or empty string if none',
           },
         },
         required: ['tags'],
@@ -214,6 +232,21 @@ export async function fetchArtistSelfTags(
       ? extracted.canonicalUrl
       : null;
 
+  // Image URL: only accept https URLs from the expected CDNs. Defends
+  // against the LLM hallucinating a placeholder or echoing the page URL
+  // instead of the og:image. Length cap is a sanity check — real CDN
+  // URLs are well under 500 chars.
+  let imageUrl: string | null = null;
+  const rawImageUrl = extracted.imageUrl;
+  if (typeof rawImageUrl === 'string' && rawImageUrl.length > 0 && rawImageUrl.length <= 500) {
+    const trimmed = rawImageUrl.trim();
+    if (
+      /^https:\/\/(i\d+\.sndcdn\.com|f\d+\.bcbits\.com)\//i.test(trimmed)
+    ) {
+      imageUrl = trimmed;
+    }
+  }
+
   return {
     tags,
     bio: extracted.bio && extracted.bio.length > 0 ? extracted.bio : null,
@@ -223,6 +256,7 @@ export async function fetchArtistSelfTags(
         : null,
     followers,
     canonicalUrl,
+    imageUrl,
     sourceUrl:
       response.data.metadata?.sourceURL ??
       response.data.metadata?.url ??
