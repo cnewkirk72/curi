@@ -30,6 +30,7 @@ import { SaveButton } from '@/components/save-button';
 import { timeLabel, formatPrice } from '@/lib/format';
 import type { FeedEvent } from '@/lib/events';
 import { initialsFor, avatarToneFor, AVATAR_BG } from '@/lib/avatars';
+import { resolveHero } from '@/lib/hero-image';
 import { cn } from '@/lib/utils';
 
 // Deterministic gradient picker for image-less events. Picks based on
@@ -55,52 +56,11 @@ function gradientFor(genres: string[]): string {
   return DEFAULT_GRADIENT;
 }
 
-/**
- * Resolve the best available hero image for the card, in priority:
- *
- *   1. `event.image_url` — the scraped/promoter-provided hero. Always
- *      wins when present, because it's been curated for this specific
- *      event (flyer, show art, etc.).
- *   2. Headliner Spotify avatar — the first `is_headliner` artist in
- *      the lineup with a populated `image_url`. A square artist photo
- *      in a 5:3 slot reads as "this headliner is the story" even
- *      when cropped.
- *   3. Any lineup Spotify avatar — falls through to the first artist
- *      with an avatar regardless of headliner flag, since scrapers
- *      don't always set `is_headliner` correctly on single-artist
- *      bills.
- *   4. `venue.image_url` — the per-venue hero photo from migration
- *      0016. Backfilled for the handful of venues that drive most
- *      "no artist avatar" cards (Public Records, Bossa Nova, etc.).
- *   5. `null` — caller draws the gradient placeholder.
- *
- * Returns the resolved URL plus a `kind` tag so the caller can tune
- * crop/object-position per source. Spotify avatars are square, so we
- * `object-cover` + `object-top` them so faces stay in frame when
- * cropped to 5:3.
- */
-type HeroSource =
-  | { kind: 'event'; url: string }
-  | { kind: 'artist'; url: string }
-  | { kind: 'venue'; url: string }
-  | { kind: 'none' };
-
-function resolveHero(event: FeedEvent): HeroSource {
-  if (event.image_url) return { kind: 'event', url: event.image_url };
-
-  const headlinerAvatar = event.lineup.find(
-    (a) => a.is_headliner && a.image_url,
-  )?.image_url;
-  if (headlinerAvatar) return { kind: 'artist', url: headlinerAvatar };
-
-  const anyAvatar = event.lineup.find((a) => a.image_url)?.image_url;
-  if (anyAvatar) return { kind: 'artist', url: anyAvatar };
-
-  if (event.venue?.image_url)
-    return { kind: 'venue', url: event.venue.image_url };
-
-  return { kind: 'none' };
-}
+// Hero fallback chain lives in `lib/hero-image.ts` so the detail page
+// (`/events/[id]`) can share the exact same cascade — otherwise the
+// home card and the detail screen showed different heroes for the
+// same event when the scraper had no flyer (card → headliner avatar,
+// detail → bare gradient). See that module for the priority order.
 
 export function EventCard({
   event,

@@ -29,6 +29,7 @@ import { getEventById } from '@/lib/events';
 import { isEventSaved } from '@/lib/saves';
 import { createClient } from '@/lib/supabase/server';
 import { timeLabel, formatPrice, groupLabel, nycDayKey } from '@/lib/format';
+import { resolveHero } from '@/lib/hero-image';
 import { cn } from '@/lib/utils';
 
 export const dynamic = 'force-dynamic';
@@ -78,6 +79,12 @@ export default async function EventDetailPage({
 
   const price = formatPrice(event.price_min, event.price_max);
   const day = groupLabel(nycDayKey(event.starts_at));
+  // Same cascade as the home feed card — flyer → headliner avatar →
+  // any-lineup avatar → venue photo → gradient. Without this, the
+  // detail page rendered a bare gradient even when the feed card for
+  // the same event was already showing a headliner photo (e.g.
+  // WhoMadeWho on "The Moment Festival").
+  const hero = resolveHero(event);
 
   return (
     <div className="relative min-h-dvh">
@@ -95,18 +102,41 @@ export default async function EventDetailPage({
         {/* ── Hero ──────────────────────────────────────────────── */}
         <section className="mt-6 animate-enter-up">
           <div className="relative aspect-[5/3] w-full overflow-hidden rounded-2xl shadow-card">
-            {event.image_url ? (
+            {hero.kind !== 'none' ? (
               // Raw <img> — next/image requires a remotePatterns allowlist
               // for every CDN our scrapers might return, and we haven't
               // catalogued those yet. Loaded eagerly since it's the LCP
               // element for this route.
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={event.image_url}
-                alt=""
-                loading="eager"
-                className="h-full w-full object-cover"
-              />
+              <>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={hero.url}
+                  alt=""
+                  loading="eager"
+                  className={cn(
+                    'h-full w-full object-cover',
+                    // Spotify artist avatars are square headshots — anchor
+                    // to top so the face stays in frame at 5:3 (matches
+                    // the feed card behavior).
+                    hero.kind === 'artist' && 'object-top',
+                  )}
+                />
+                {/* Source-specific scrim + chip — same treatment as the
+                    feed card. Keeps it visually honest: an artist photo
+                    or a venue interior shouldn't be mistaken for the
+                    actual event flyer. */}
+                {hero.kind !== 'event' && (
+                  <>
+                    <div
+                      aria-hidden
+                      className="pointer-events-none absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-bg-deep/70 to-transparent"
+                    />
+                    <span className="absolute bottom-3 left-3 rounded-pill bg-bg-deep/70 px-2.5 py-1 text-2xs font-medium uppercase tracking-widest text-fg-primary/90 backdrop-blur">
+                      {hero.kind === 'artist' ? 'Featuring' : 'Venue'}
+                    </span>
+                  </>
+                )}
+              </>
             ) : (
               <div
                 className={cn(
