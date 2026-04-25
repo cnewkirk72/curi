@@ -103,11 +103,9 @@ export default async function HomePage({
   return (
     <div className="relative min-h-dvh">
       {/* Desktop-only sticky top nav. Self-gates with `hidden lg:block`
-          via its own header element so mobile doesn't render the
-          extra DOM. */}
-      <div className="hidden lg:block">
-        <DesktopTopNav />
-      </div>
+          on its own header so it must be a direct child of this wrapper —
+          sticky only works when the containing block spans the full scroll height. */}
+      <DesktopTopNav />
 
       <main
         className={cn(

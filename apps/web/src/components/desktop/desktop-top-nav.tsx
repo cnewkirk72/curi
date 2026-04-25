@@ -45,7 +45,7 @@ export async function DesktopTopNav() {
         // Sticky at the top, full-width, glass background with a
         // hairline divider. z-30 sits under the filter sheet backdrop
         // (z-40) so a modal always covers it.
-        'sticky top-0 z-30 border-b border-border bg-bg-deep/70 backdrop-blur-glass'
+        'hidden lg:block sticky top-0 z-30 border-b border-border bg-bg-deep/70 backdrop-blur-glass'
       }
     >
       <div className="mx-auto flex max-w-7xl items-center justify-between px-8 py-4">

@@ -42,7 +42,7 @@ export async function AppHeader() {
     // Mobile-only: DesktopTopNav takes over at lg+. The whole header
     // is gated rather than inner elements so the pb-4 spacing also
     // collapses at desktop.
-    <header className="relative flex items-center justify-between pb-4 lg:hidden">
+    <header className="sticky top-0 z-30 -mx-5 mb-4 flex items-center justify-between border-b border-border bg-bg-deep/70 px-5 py-3 backdrop-blur-glass lg:hidden">
       <div className="flex items-center gap-2">
         <h1 className="font-display text-lg font-semibold tracking-display">curi</h1>
         <span className="rounded-pill border border-border px-2 py-0.5 text-2xs uppercase tracking-widest text-fg-muted">
