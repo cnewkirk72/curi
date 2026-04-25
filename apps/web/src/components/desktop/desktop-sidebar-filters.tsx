@@ -30,6 +30,7 @@ import { cn } from '@/lib/utils';
 import {
   DATE_OPTIONS,
   SETTING_OPTIONS,
+  displayDateForFilter,
   labelForDateRange,
   parentHasSubgenres,
   parseFilters,
@@ -99,7 +100,7 @@ export function DesktopSidebarFilters({
     });
   }
 
-  // ── Preset "When" selection ─────────────────────────────────
+  // ── Preset "When" selection ─────────────────────────────
   function selectPreset(slug: Exclude<DateFilter, 'custom'>) {
     commit({
       ...filters,
@@ -109,7 +110,7 @@ export function DesktopSidebarFilters({
     });
   }
 
-  // ── Custom single-date selection ───────────────────────────────
+  // ── Custom single-date selection ────────────────────────────
   // Picking a day sets `when='custom'` with `date_from = day` and
   // `date_to = null` — i.e. "from this day onward". Re-tapping the
   // same day in the picker clears it (handled by DatePicker's single
@@ -248,9 +249,15 @@ export function DesktopSidebarFilters({
                 </button>
               )}
             </div>
+            {/* The picker's `value` reflects the active preset's
+                implied day (e.g., `tomorrow` → tomorrow's dayKey) so
+                the calendar shows visual feedback even when the user
+                is in preset mode rather than custom. Tapping the
+                highlighted day promotes the preset's window to a
+                "from this day onward" custom range. */}
             <DatePicker
               mode="single"
-              value={filters.date_from}
+              value={displayDateForFilter(filters)}
               onChange={onDateChange}
               todayDayKey={todayDayKey}
               minDate={todayDayKey}

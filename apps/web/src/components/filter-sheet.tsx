@@ -20,6 +20,7 @@ import { cn } from '@/lib/utils';
 import {
   DATE_OPTIONS,
   SETTING_OPTIONS,
+  displayDateForFilter,
   labelForDateRange,
   parentHasSubgenres,
   serializeFilters,
@@ -194,7 +195,7 @@ export function FilterSheet({ open, onClose, initialFilters, userPrefs }: Props)
         )}
       />
 
-      {/* Sheet ───────────────────────────────────────────────────────── */}
+      {/* Sheet ─────────────────────────────────────────────────────── */}
       <div
         role="dialog"
         aria-modal="true"
@@ -251,11 +252,18 @@ export function FilterSheet({ open, onClose, initialFilters, userPrefs }: Props)
               {/* Custom date disclosure. When a custom date is already
                   set we render the picker expanded by default so the
                   user can see what they chose. Otherwise we start
-                  collapsed and let them tap to expand. */}
+                  collapsed and let them tap to expand. The `value`
+                  passed to the picker reflects the active preset's
+                  implied day (e.g., `tomorrow` → tomorrow's dayKey)
+                  so the calendar shows visual feedback even when the
+                  user hasn't entered custom mode yet. Tapping the
+                  highlighted day promotes the preset's 24-hour window
+                  to a "from this day onward" custom range — a
+                  one-click escape hatch from preset semantics. */}
               <CustomDateDisclosure
                 expanded={draft.when === 'custom'}
                 rangeLabel={rangeLabel}
-                value={draft.date_from}
+                value={displayDateForFilter(draft)}
                 todayDayKey={todayDayKey}
                 onChange={onDateChange}
               />
