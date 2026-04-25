@@ -121,6 +121,7 @@ export function FilterSheet({ open, onClose, initialFilters, userPrefs }: Props)
       vibes: [],
       setting: [],
       subgenres: [],
+      q: '',
     });
   }
 

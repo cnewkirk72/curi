@@ -82,6 +82,7 @@ export type FilterState = {
    * hand-crafted URLs.
    */
   subgenres: string[];
+  q: string;
 };
 
 export const EMPTY_FILTERS: FilterState = {
@@ -92,6 +93,7 @@ export const EMPTY_FILTERS: FilterState = {
   vibes: [],
   setting: [],
   subgenres: [],
+  q: '',
 };
 
 // ── URL ↔ FilterState ─────────────────────────────────────────
@@ -195,6 +197,7 @@ export function parseFilters(sp: ParamsLike): FilterState {
       .split(',')
       .map((s) => decodeURIComponent(s).trim())
       .filter(Boolean),
+    q: (sp.get('q') ?? '').trim().slice(0, 200),
   };
 }
 
@@ -216,6 +219,7 @@ export function serializeFilters(state: FilterState): string {
   if (state.vibes.length) params.set('vibes', state.vibes.join(','));
   if (state.setting.length) params.set('setting', state.setting.join(','));
   if (state.subgenres.length) params.set('subgenres', state.subgenres.join(','));
+  if (state.q) params.set('q', state.q);
   return params.toString();
 }
 
@@ -225,7 +229,8 @@ export function hasActiveFilters(state: FilterState): boolean {
     state.genres.length > 0 ||
     state.vibes.length > 0 ||
     state.setting.length > 0 ||
-    state.subgenres.length > 0
+    state.subgenres.length > 0 ||
+    state.q.length > 0
   );
 }
 

@@ -26,6 +26,7 @@ import {
   labelForDateRange,
   labelForWhen,
 } from '@/lib/filters';
+import { GlobalSearch } from '@/components/global-search';
 
 // Initial SSR page size. Keep this small enough that the server
 // payload stays snappy and infinite scroll has room to demonstrate
@@ -132,6 +133,11 @@ export default async function HomePage({
         />
 
         <AppHeader />
+
+        {/* Mobile search — hidden at lg+ where the nav carries it */}
+        <div className="mb-4 lg:hidden">
+          <GlobalSearch />
+        </div>
 
         {/* Desktop sidebar — shown in the grid's first column at lg+.
             Keeps all filter state in the URL just like mobile. */}

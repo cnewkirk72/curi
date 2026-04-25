@@ -19,6 +19,7 @@ import Link from 'next/link';
 import { createClient } from '@/lib/supabase/server';
 import { getMyProfile } from '@/lib/profile';
 import { DesktopNavLinks } from '@/components/desktop/desktop-nav-links';
+import { GlobalSearch } from '@/components/global-search';
 
 export async function DesktopTopNav() {
   const supabase = createClient();
@@ -67,10 +68,10 @@ export async function DesktopTopNav() {
           </span>
         </Link>
 
-        {/* Center: pill nav links (client, for usePathname active state).
-            Hidden on narrow desktop (<1280px) to avoid crowding — the
-            avatar still routes users to /profile, and /saved remains
-            accessible via deep link and the mobile bottom-nav. */}
+        {/* Center: search bar */}
+        <GlobalSearch className="w-full max-w-sm" />
+
+        {/* Right-center: pill nav links */}
         <div className="hidden xl:flex">
           <DesktopNavLinks />
         </div>

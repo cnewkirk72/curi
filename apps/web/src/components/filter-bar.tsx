@@ -89,6 +89,7 @@ export function FilterBar({
       vibes: [],
       setting: [],
       subgenres: [],
+      q: '',
     });
   }
 

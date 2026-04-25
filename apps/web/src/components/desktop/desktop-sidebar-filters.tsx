@@ -173,6 +173,7 @@ export function DesktopSidebarFilters({
       vibes: [],
       setting: [],
       subgenres: [],
+      q: '',
     });
   }
 

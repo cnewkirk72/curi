@@ -254,6 +254,11 @@ export async function getUpcomingEvents({
   // house"), which maps cleanly to PostgreSQL's `&&` array-overlap
   // operator and our GIN indexes (events_genres_gin, events_vibes_gin,
   // events_setting_gin from migration 0017).
+  if (filters.q) {
+    // Escape LIKE metacharacters so a bare "%" doesn't match everything.
+    const escaped = filters.q.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
+    query = query.ilike('title', `%${escaped}%`);
+  }
   if (filters.genres.length) {
     query = query.overlaps('genres', filters.genres);
   }
