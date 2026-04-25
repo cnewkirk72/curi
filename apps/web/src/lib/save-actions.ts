@@ -13,7 +13,6 @@
 // on a write that RLS then rejects.
 
 import { revalidatePath } from 'next/cache';
-import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
 import type { TablesInsert } from '@/lib/supabase/types';
 
@@ -105,30 +104,3 @@ export async function unsaveEvent(eventId: string): Promise<Result> {
   return { ok: true };
 }
 
-/**
- * Progressive-enhancement entry point used by non-JS bookmark
- * forms. Reads the toggle action + event id from form data so
- * a single <form action={toggleSave}> can be posted from a
- * button that knows its current state.
- *
- * Kept as a thin wrapper over save/unsave so the core actions
- * stay callable with typed args from client components.
- */
-export async function toggleSaveForm(formData: FormData) {
-  const eventId = String(formData.get('eventId') ?? '');
-  const currentlySaved = formData.get('currentlySaved') === '1';
-  const nextPath = String(formData.get('next') ?? '/');
-
-  if (!eventId) redirect(nextPath);
-
-  const result = currentlySaved
-    ? await unsaveEvent(eventId)
-    : await saveEvent(eventId);
-
-  if (!result.ok && result.reason === 'unauth') {
-    redirect(`/login?next=${encodeURIComponent(nextPath)}`);
-  }
-
-  // Fall through — the page re-renders with the updated save
-  // state after revalidatePath.
-}

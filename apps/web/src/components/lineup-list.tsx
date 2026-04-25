@@ -66,7 +66,8 @@ function EmbedPanel({ url }: { url: string }) {
         src={url}
         width="100%"
         height={isSoundCloud ? 166 : 352}
-        allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
+        allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
+        sandbox="allow-scripts allow-same-origin allow-popups allow-presentation"
         loading="lazy"
         className="block w-full border-0"
       />

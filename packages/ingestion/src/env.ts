@@ -44,7 +44,7 @@ export const env = {
     return required('SUPABASE_SERVICE_ROLE_KEY');
   },
   get musicbrainzUserAgent(): string {
-    return optional('MUSICBRAINZ_USER_AGENT', 'Curi/0.1 (cmitsuo7@yahoo.com)');
+    return required('MUSICBRAINZ_USER_AGENT');
   },
   get politeDelayMs(): number {
     return Number.parseInt(optional('INGEST_POLITE_DELAY_MS', '1500'), 10);
