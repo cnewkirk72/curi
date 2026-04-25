@@ -16,11 +16,16 @@
 import { revalidatePath } from 'next/cache';
 import { createClient } from '@/lib/supabase/server';
 import type { TablesInsert } from '@/lib/supabase/types';
-import { GENRE_OPTIONS, VIBE_OPTIONS } from '@/lib/filters';
+import { GENRE_OPTIONS, SETTING_OPTIONS, VIBE_OPTIONS } from '@/lib/filters';
 
 export type PrefsInput = {
   preferred_genres: string[];
   preferred_vibes: string[];
+  /** Phase 3.18 — event-context settings (warehouse, basement,
+   *  daytime, peak-time, late-night, outdoor, underground). Optional
+   *  on input; the action defaults to []. Backed by user_prefs.preferred_setting
+   *  added in migration 0019. */
+  preferred_setting?: string[];
   digest_email: boolean;
 };
 
@@ -33,6 +38,7 @@ type Result = { ok: true } | { ok: false; reason: 'unauth' | 'failed' };
 // "preferred" slugs stay inside the canonical vocabulary.
 const GENRE_SLUGS = new Set(GENRE_OPTIONS.map((o) => o.slug));
 const VIBE_SLUGS = new Set(VIBE_OPTIONS.map((o) => o.slug));
+const SETTING_SLUGS = new Set(SETTING_OPTIONS.map((o) => o.slug));
 
 function sanitize(values: string[], allowed: Set<string>): string[] {
   const seen = new Set<string>();
@@ -66,6 +72,7 @@ export async function upsertUserPrefs(input: PrefsInput): Promise<Result> {
 
   const cleanGenres = sanitize(input.preferred_genres ?? [], GENRE_SLUGS);
   const cleanVibes = sanitize(input.preferred_vibes ?? [], VIBE_SLUGS);
+  const cleanSetting = sanitize(input.preferred_setting ?? [], SETTING_SLUGS);
   const digest = !!input.digest_email;
 
   // Same @supabase/ssr 0.5.1 type-inference dance as save-actions.ts:
@@ -76,6 +83,7 @@ export async function upsertUserPrefs(input: PrefsInput): Promise<Result> {
     user_id: user.id,
     preferred_genres: cleanGenres,
     preferred_vibes: cleanVibes,
+    preferred_setting: cleanSetting,
     digest_email: digest,
   };
 

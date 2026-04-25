@@ -38,6 +38,7 @@
 
 import 'dotenv/config';
 import { supabase } from './supabase.js';
+import { normalizeGenresOnly } from './genre-normalizer.js';
 
 const PAGE_SIZE = 1000;
 
@@ -289,7 +290,18 @@ async function main(): Promise<void> {
       venueSignals.push({ genres: [], vibes: venueVibes, weight: 1 });
     }
 
-    const newRollup = rollup([...artistSignals, ...venueSignals]);
+    const rawRollup = rollup([...artistSignals, ...venueSignals]);
+
+    // Phase 3.18 — normalize the rollup output before writing back.
+    // Catches any junk that slipped through the artist data (e.g. a
+    // newly-enriched artist whose LLM result included a deny-list slug
+    // before normalize-on-enrichment was wired). Subgenres surfaced by
+    // the move-to-subgenre rule are dropped here — events don't carry
+    // subgenres directly; the artist-level write path handles those.
+    const newRollup = {
+      genres: normalizeGenresOnly(rawRollup.genres),
+      vibes: rawRollup.vibes,
+    };
 
     // Skip events where we have no signal AT ALL — don't overwrite any
     // stored data with empty arrays. This preserves stale-but-nonzero
@@ -330,9 +342,9 @@ async function main(): Promise<void> {
     }
   }
 
-  console.log('\n═══════════════════════════════════════════════════════');
+  console.log('\n════════════════════════════════════════════════════════');
   console.log(`Re-aggregation summary — ${mode}`);
-  console.log('═══════════════════════════════════════════════════════');
+  console.log('════════════════════════════════════════════════════════');
   console.log(`  events scanned: ${events.length}`);
   console.log(`  changed:        ${changed}`);
   console.log(`  unchanged:      ${unchanged}`);
