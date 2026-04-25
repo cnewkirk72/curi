@@ -22,6 +22,7 @@ import {
   hasActiveFilters,
   labelForDateRange,
   labelForGenre,
+  labelForSetting,
   labelForSubgenre,
   labelForVibe,
   labelForWhen,
@@ -32,7 +33,14 @@ import {
 } from '@/lib/filters';
 import { FilterSheet } from '@/components/filter-sheet';
 
-export function FilterBar() {
+export function FilterBar({
+  userPrefs,
+}: {
+  /** Phase 3.18 — onboarding-time prefs threaded through to the
+   *  FilterSheet so the genre/vibe rows render in pref-aware order
+   *  on mobile. Pass undefined for anon viewers. */
+  userPrefs?: { genres: string[]; vibes: string[] };
+} = {}) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -66,6 +74,9 @@ export function FilterBar() {
   function removeVibe(slug: string) {
     commit({ ...filters, vibes: filters.vibes.filter((v) => v !== slug) });
   }
+  function removeSetting(slug: string) {
+    commit({ ...filters, setting: filters.setting.filter((s) => s !== slug) });
+  }
   function removeSubgenre(slug: string) {
     commit({ ...filters, subgenres: filters.subgenres.filter((s) => s !== slug) });
   }
@@ -76,6 +87,7 @@ export function FilterBar() {
       date_to: null,
       genres: [],
       vibes: [],
+      setting: [],
       subgenres: [],
     });
   }
@@ -135,6 +147,11 @@ export function FilterBar() {
             {labelForVibe(slug)}
           </ActiveChip>
         ))}
+        {filters.setting.map((slug) => (
+          <ActiveChip key={`set-${slug}`} onRemove={() => removeSetting(slug)}>
+            {labelForSetting(slug)}
+          </ActiveChip>
+        ))}
 
         {active && (
           <button
@@ -151,6 +168,7 @@ export function FilterBar() {
         open={open}
         onClose={() => setOpen(false)}
         initialFilters={filters}
+        userPrefs={userPrefs}
       />
     </div>
   );

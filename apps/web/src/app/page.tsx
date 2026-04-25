@@ -16,6 +16,7 @@ import { DesktopSidebarFilters } from '@/components/desktop/desktop-sidebar-filt
 import { InfiniteFeed } from '@/components/infinite-feed';
 import { getUpcomingEvents } from '@/lib/events';
 import { getSavedEventIds } from '@/lib/saves';
+import { getUserPrefs } from '@/lib/preferences';
 import { createClient } from '@/lib/supabase/server';
 import { cn } from '@/lib/utils';
 import {
@@ -61,20 +62,30 @@ export default async function HomePage({
 }) {
   const filters = parseFilters(searchParamsAdapter(searchParams));
 
-  // Fire the three reads in parallel — they don't depend on each
+  // Fire the four reads in parallel — they don't depend on each
   // other. Auth + saved-ids both fail soft for anon viewers (RLS
   // returns [] rather than 403), so the `signedIn` check is the
-  // canonical "show saved state?" predicate.
+  // canonical "show saved state?" predicate. user_prefs read is
+  // Phase 3.18 — drives the personalized genre/vibe ordering in
+  // the desktop sidebar (RLS returns DEFAULT_PREFS for anon
+  // viewers, harmless).
   const supabase = createClient();
-  const [events, savedIds, {
+  const [events, savedIds, prefs, {
     data: { user },
   }] = await Promise.all([
     getUpcomingEvents({ limit: INITIAL_PAGE_SIZE, filters }),
     getSavedEventIds(),
+    getUserPrefs(),
     supabase.auth.getUser(),
   ]);
 
   const signedIn = !!user;
+  // Trim user_prefs to the shape the sidebar/sheet wants — keeps
+  // the prop surface minimal and avoids leaking unrelated fields
+  // (digest_email, etc) into a client component.
+  const sidebarPrefs = signedIn
+    ? { genres: prefs.preferred_genres, vibes: prefs.preferred_vibes }
+    : undefined;
   const active = hasActiveFilters(filters);
   // Remount the InfiniteFeed whenever the URL's filter state changes
   // so we don't have to reconcile in-flight pagination against a new
@@ -127,10 +138,10 @@ export default async function HomePage({
         {/* Desktop sidebar — shown in the grid's first column at lg+.
             Keeps all filter state in the URL just like mobile. */}
         <div className="hidden lg:block">
-          <DesktopSidebarFilters />
+          <DesktopSidebarFilters userPrefs={sidebarPrefs} />
         </div>
 
-        {/* Feed column ────────────────────────────────────────── */}
+        {/* Feed column ─────────────────────────────────────────────────── */}
         <div className="min-w-0 lg:col-start-2">
           {/* Hero title — adapts to the active date filter so the
               feed's framing stays honest when a user has narrowed
@@ -146,7 +157,7 @@ export default async function HomePage({
 
           {/* Mobile filter-bar — hidden at lg+ (sidebar takes over). */}
           <div className="relative mb-8 lg:hidden">
-            <FilterBar />
+            <FilterBar userPrefs={sidebarPrefs} />
           </div>
 
           {events.length === 0 ? (
@@ -169,7 +180,7 @@ export default async function HomePage({
   );
 }
 
-// ─── Empty state ──────────────────────────────────────────────────────
+// ─── Empty state ─────────────────────────────────────────────────────────────────
 
 function EmptyState({ filtered }: { filtered: boolean }) {
   if (filtered) {
