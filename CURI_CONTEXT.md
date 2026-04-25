@@ -9,9 +9,11 @@ sharp edges are.
 ## What Curi is
 
 Curi is a PWA that curates upcoming live-music events in NYC, filtered by
-**genre**, **subgenre**, and **vibe**. Originally scoped to electronic, as
-of Phase 3.15 it covers all genres (rock/pop/jazz/hip-hop/metal/folk/latin
-parents exist in the taxonomy). The MVP is live.
+**genre**, **subgenre**, **vibe** (artist-mood), and **setting**
+(event-context). Originally scoped to electronic; as of Phase 3.15 it
+covers all genres (rock/pop/jazz/hip-hop/metal/folk/latin parents exist
+in the taxonomy). The MVP is live, the filter taxonomy was rebuilt in
+Phase 3.18, and the desktop responsive refactor (Phase 6.1) shipped.
 
 ### Unique value in the event-curation space
 
@@ -20,17 +22,28 @@ list sorted by date or venue. Curi's differentiator is **structured
 multi-dimensional filtering** powered by an AI-enriched artist catalog:
 
 - Every artist on the lineup is tagged on three orthogonal axes — `genres`
-  (parent), `subgenres` (specific), and `vibes` (musical character:
-  Melodic, Hypnotic, Dark, Driving, …). Filters combine freely: "deep
+  (parent), `subgenres` (specific), and `vibes` (artist musical character:
+  Groovy, Hypnotic, Dark, Driving, …). Filters combine freely: "deep
   house + hypnotic" returns a different set than "deep house + driving".
-- Vibes are curated as musical-character descriptors only, not venue
-  atmospherics — that separation is load-bearing. Don't conflate.
+- A fourth axis, `setting`, captures event-context (warehouse, basement,
+  daytime, peak-time, late-night, outdoor, underground). Distinct from
+  `vibes` because it's produced by a different pipeline — deterministic
+  derivation from venue + start-time + lineup-follower totals, not LLM
+  tagging. The two layers share UI real estate but are intentionally
+  decoupled in the data model.
 - Genres roll up from the artist layer to the event layer via the
   `events-reaggregate.ts` script, so events inherit their lineup's tags.
 - The taxonomy grows on its own. When a scraper surfaces a MusicBrainz or
   Spotify tag without a mapping, the smart-genre layer slots it under the
   closest parent automatically rather than dropping it to a
-  human-review log.
+  human-review log. **Genre normalization** runs on every ingestion write
+  via `packages/ingestion/src/genre-normalizer.ts` (Phase 3.18) — junk
+  slugs (descriptors, country tags, label names) are dropped, typos
+  renamed, wrong-granularity slugs (industrial, hardcore, psychedelic)
+  demoted from parent-genre to subgenre with the canonical parent added.
+- Filter UI personalizes by user preferences: signed-in users see their
+  onboarding-picked genres + vibes bubble to the front of the visible
+  pill rows, with a "More genres" disclosure for the long tail.
 
 **Design aesthetic:** Midnight + Cyan (dark mode first, cyan accent). See
 `design-system/` for tokens.
@@ -91,7 +104,15 @@ supabase/migrations/    0001–0014 applied
 
 **events**
 - `id, slug, title, starts_at, ends_at, venue_id, source, source_url`
-- Aggregated from lineup: `genres[]`, `subgenres[]`, `vibes[]`
+- Aggregated from lineup: `genres[]`, `vibes[]` (artist-mood)
+- `setting[]` (Phase 3.18, migration 0017) — derived event-context tags:
+  warehouse, basement, outdoor, daytime, peak-time, late-night, underground.
+  Populated deterministically (no LLM) by SQL update over venue + start-time
+  + lineup follower totals; rule documented in migration 0018's comment.
+  Distinct GIN index `events_setting_gin` for filter overlap queries.
+- `image_url` — optional hero image; falls back through headliner Spotify
+  avatar → any-lineup avatar → `venue.image_url` → genre-tinted gradient
+  per the Phase 3.17 fallback chain in `apps/web/src/components/event-card.tsx`.
 - Filled by `events-reaggregate.ts`, not by scrapers directly
 
 **artists**
@@ -106,21 +127,29 @@ supabase/migrations/    0001–0014 applied
 
 **event_artists** — `(event_id, artist_id, position, is_headliner)`
 
-**venues** — `slug, name, address, default_genres[], default_vibes[]` —
-  defaults feed the enrichment prompt as prior-evidence context
+**venues** — `slug, name, address, default_genres[], default_vibes[],
+  image_url` (0016) — defaults feed the enrichment prompt as
+  prior-evidence context. `image_url` is consumed by the EventCard hero
+  fallback chain when the event has no `image_url` and no lineup artist
+  has a Spotify avatar; the per-venue backfill is queued (#43) but not
+  yet applied — Public Records, Apollo Studio, Outer Heaven, Jupiter
+  Disco, Bossa Nova are the highest-impact venues to seed.
 
 **taxonomy** / **taxonomy_subgenres** / **taxonomy_map** — the genre
   vocabulary. `taxonomy_map` maps raw MB/Spotify tag strings →
   canonical taxonomy entries. `taxonomy_subgenres` carries auto-created
   subgenre rows with `parent_taxonomy_id` FK.
 
-**user_prefs** (0005, extended 0014) — per-user taste + onboarding
+**user_prefs** (0005, extended 0014, 0019) — per-user taste + onboarding
   state. Columns: `preferred_genres[]`, `preferred_vibes[]`,
-  `preferred_subgenres[]` (0014), `default_when`
-  (`'weekend'|'tonight'|'week'|NULL`), `notify_artist_drops`,
-  `location_opt_in`, `calendar_opt_in`, `onboarding_completed_at`.
-  The completion stamp is what the middleware gate reads to decide
-  whether to bounce signed-in users to `/onboarding`.
+  `preferred_setting[]` (0019), `preferred_subgenres[]` (0014),
+  `default_when` (`'weekend'|'tonight'|'week'|NULL`),
+  `notify_artist_drops`, `location_opt_in`, `calendar_opt_in`,
+  `onboarding_completed_at`. The completion stamp is what the
+  middleware gate reads to decide whether to bounce signed-in users
+  to `/onboarding`. Pref-aware sort (Phase 3.18) reads
+  `preferred_genres`/`preferred_vibes` server-side on the home page
+  and bubbles those slugs to the front of the filter pill rows.
 
 **profiles** (0013) — public-read identity: `username` (citext,
   unique), `display_name`, `avatar_url`, timestamps. Seeded on
@@ -222,7 +251,54 @@ some scraper-junk still occasionally slips through (see "Sharp edges").
 
 ---
 
-## Current status (as of 2026-04-20)
+## Current status (as of 2026-04-25)
+
+### Phase 6 (desktop + discovery polish) — partial ship
+
+- **6.1 — Desktop responsive refactor — shipped.** Sticky left
+  filter sidebar at `lg`+ breakpoint (`apps/web/src/components/desktop/
+  desktop-sidebar-filters.tsx`), wider event cards, top-nav for
+  desktop. Mobile filter sheet remains for < lg. URL is still the
+  source of truth for filter state on both layouts; same
+  `serializeFilters` / `parseFilters` round-trip.
+- **6.2 — Date selector — shipped.** Custom single-date picker
+  (`components/date-picker.tsx`) inline in the desktop sidebar +
+  collapsed disclosure on mobile sheet. Selecting a date sets
+  `when='custom'` with `date_from = picked day` and `date_to = null`
+  for an open-ended "from X onward" window. Round-trips through the
+  `?when=custom&from=YYYY-MM-DD` URL param. Date math handles NYC DST
+  via `Intl.DateTimeFormat` shortOffset sampling.
+- **6.3 — Dynamic live search (typeahead) — NOT shipped** yet.
+  Highest-priority next item; users currently can't search by event
+  title, artist name, or venue.
+
+### Phase 3 polish + maintenance — multiple shipped
+
+- **3.15 — NYC-wide expansion — shipped.** Taxonomy seeded with
+  rock/pop/jazz/hip-hop/metal/folk/latin parents; the smart-genre
+  layer auto-creates new top-level genres when MB tags don't match
+  any existing parent.
+- **3.16 — Pre-insert dedup — shipped.** Migration 0015 +
+  `find_dupe_event_by_artist` Postgres function. Pre-insert check in
+  the scraper pipeline collapses cross-source duplicates (RA + venue
+  + Eventbrite reporting the same show) by `(venue_id, starts_at,
+  artist-slug-overlap)`.
+- **3.17 — Hero fallback chain — shipped.** EventCard cascades
+  through event.image_url → headliner Spotify avatar → any lineup
+  Spotify avatar → venue.image_url → genre-tinted gradient. Migration
+  0016 added `venues.image_url`. Of 93 events without an event hero,
+  ~55% are now rescued by the artist avatar fallback before hitting
+  the venue or gradient layer.
+- **3.18 — Filter vocabulary rebuild — shipped.** Genre vocabulary
+  rebuilt from post-3.15 NYC-wide data (24 parents, default-14 row +
+  10 in More-genres disclosure). Vibes refocused as artist-mood only
+  (`adventurous` rename, `industrial` dropped). Setting filter
+  introduced as a new orthogonal axis (`events.setting`, migration
+  0017). `preferences-actions.ts` and lib/filters.ts updated; data
+  cleaned via migration 0018 with audit backup; user_prefs split via
+  0019. Genre normalizer (`packages/ingestion/src/genre-normalizer.ts`)
+  guards every ingestion write boundary so future scrapes can't
+  reintroduce junk.
 
 ### Phase 5 (personalization foundations) — partial ship
 
@@ -289,15 +365,29 @@ personalized feed lands cleanly:
 
 ### Immediate punch list
 
-- **Targeted Spotify-only follow-up pass** (tomorrow, once cooldown clears).
-  Simple script: `SELECT id, name FROM artists WHERE spotify_url IS NULL
-  AND last_enriched_at IS NOT NULL`, call `searchArtistOnSpotify`, write
-  back 4 Spotify columns. ~200ms/artist. No LLM, no Firecrawl.
+- **Phase 6.3 typeahead search.** Users can't currently search by
+  event title, artist name, or venue. Highest-impact next feature;
+  reuse the existing PostgREST select with a server-side `ilike`
+  filter via a search param, debounce ~150ms in the input. Spec is in
+  `curi_roadmap.md` 6.3.
+- **Venue image_url backfill (#43).** Top NYC venues still rendering
+  the gradient placeholder when no event hero + no lineup avatar:
+  Public Records (16 events), Apollo Studio (6), Outer Heaven (5),
+  Jupiter Disco (3), Bossa Nova Civic Club (2). Needs Google Places
+  Photos API integration or a curated photo pass — OG-image scraping
+  proved unreliable on first attempt.
+- **`spotify_followers` backfill.** Phase 3.18's underground rule
+  omits Spotify follower count because the column is sparse — only
+  populated on artists enriched after migration 0012. Backfill the
+  ~1000 artists with empty `spotify_followers` from the existing
+  `/v1/artists/{id}` Spotify response we already make. Tightens the
+  "lineup is small" half of the underground heuristic.
 - **Scraper noise-list hardening.** 6 non-artist rows slipped through
-  tonight (e.g., "2026", "EarthFest '26", "Opening Day - Sun. May 17th").
-  Rare — the LLM stall fallback catches them and tags `very-low` so
-  they're easy to audit — but could be prevented forward via regex
-  additions for strings with digits, venue terms, or month names.
+  prior runs (e.g., "2026", "EarthFest '26", "Opening Day - Sun. May
+  17th"). Rare — the LLM stall fallback catches them and tags
+  `very-low` so they're easy to audit — but could be prevented
+  forward via regex additions for strings with digits, venue terms,
+  or month names.
 
 ### Known sharp edges
 
@@ -367,7 +457,10 @@ In priority order:
 6. `supabase/migrations/0013_profiles_and_avatars.sql` +
    `0014_user_prefs_onboarding.sql` — the Phase 5 schema changes
    (profiles/OAuth trigger/avatars Storage, then user_prefs
-   extensions for onboarding state)
+   extensions for onboarding state). Migrations `0015`–`0019` cover
+   the dedup function, venue.image_url, events.setting, the genre
+   cleanup remap, and the user_prefs preferred_setting split. Next
+   sequential migration is `0020`.
 7. `apps/web/src/app/onboarding/onboarding-flow.tsx` — the client
    state machine that orchestrates the 5-step onboarding, plus
    the co-located `actions.ts` for the server-action surface

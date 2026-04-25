@@ -3,9 +3,11 @@
 Forward plan, phased by lift (lowest → highest). Items sourced from
 Christian's consolidated idea list + notes flagged during Phase 4.
 
-**Currently shipped:** Phases 1–4 in full; Phase 5 partial
-(5.1 / 5.2 / 5.4 + onboarding redirect gate). See `CURI_CONTEXT.md`
-for status detail.
+**Currently shipped:** Phases 1–4 in full; Phase 5 partial (5.1 / 5.2 /
+5.4 + onboarding redirect gate); Phase 6 partial (6.1 desktop responsive
++ 6.2 date selector); Phase 3 polish 3.15–3.18 (NYC-wide expansion,
+pre-insert dedup, hero fallback chain, filter vocabulary rebuild). See
+`CURI_CONTEXT.md` for status detail.
 
 ---
 
@@ -84,22 +86,82 @@ exchange time to save a redirect hop.
 Medium lift. Christian has screenshots for reference — review those
 before starting.
 
-### 6.1 Desktop responsive refactor
+### 6.1 Desktop responsive refactor — **shipped**
 
-Current UI is mobile-first. Desktop layout needs its own information
-density, side-by-side filter + feed, wider event cards, hover states
-for secondary info. Keep the PWA install flow intact for iPad/iPhone.
+Sticky left filter sidebar at `lg`+ breakpoint
+(`apps/web/src/components/desktop/desktop-sidebar-filters.tsx`),
+wider event cards in a 2-col grid, dedicated `DesktopTopNav`. Mobile
+filter sheet remains for `< lg`. URL stays the source of truth on
+both layouts; same `serializeFilters` / `parseFilters` round-trip.
 
-### 6.2 Date selector
+### 6.2 Date selector — **shipped**
 
-Currently implicit (feed shows upcoming by date). Add an explicit
-date-range control in the filter sheet.
+Custom single-date picker (`components/date-picker.tsx`) inline in
+the desktop sidebar + collapsed disclosure on mobile sheet. Selecting
+a date sets `when='custom'` with `date_from = picked day` and
+`date_to = null` for an open-ended "from X onward" window. Round-trips
+through the `?when=custom&from=YYYY-MM-DD` URL param. Date math
+handles NYC DST via `Intl.DateTimeFormat` shortOffset sampling.
 
-### 6.3 Dynamic live search (typeahead)
+### 6.3 Dynamic live search (typeahead) — **next priority**
 
 Results narrow automatically as the user types, across event title,
 artist name, venue. Debounce ~150ms. Reuse the existing PostgREST
 select shape, add server-side `ilike` filter via a search param.
+Highest-impact remaining feature in Phase 6 — users currently can't
+search at all, only filter.
+
+---
+
+## Phase 3 polish + maintenance — shipped phases
+
+These didn't fit the original 5-phase numbering but landed in 2026-04.
+Documented here so the roadmap is honest about what shipped between
+Phase 5 and Phase 6.
+
+### 3.15 NYC-wide expansion — **shipped**
+
+Taxonomy seeded with rock/pop/jazz/hip-hop/metal/folk/latin parents.
+The smart-genre layer auto-creates new top-level genres when MB tags
+don't match any existing parent. Originally Curi was electronic-only;
+this opened the door to the broader NYC live-music catalog.
+
+### 3.16 Pre-insert dedup — **shipped**
+
+Migration 0015 + Postgres function `find_dupe_event_by_artist`. Pre-
+insert check in the scraper pipeline collapses cross-source duplicates
+(RA + venue + Eventbrite reporting the same show) by `(venue_id,
+starts_at, artist-slug-overlap)`. ~10 strict-duplicate events were
+backfill-deleted with audit backup at the same time.
+
+### 3.17 Hero fallback chain — **shipped**
+
+EventCard cascades through event.image_url → headliner Spotify avatar
+→ any-lineup Spotify avatar → venue.image_url → genre-tinted gradient.
+Migration 0016 added `venues.image_url`. Of 93 events without an
+event hero, ~55% are now rescued by the artist avatar fallback before
+hitting the venue or gradient layer. Per-venue backfill is queued
+(see "Active follow-ups" below) — the column is in place, the curation
+of photos is the remaining work.
+
+### 3.18 Filter vocabulary rebuild — **shipped**
+
+Genre vocabulary rebuilt from post-3.15 NYC-wide data: 24 parents,
+default-14 row + 10 in More-genres disclosure, slugs match
+`events.genres` byte-for-byte. Vibes refocused as artist-mood only
+(`adventurous` rename, `industrial` dropped). New Setting filter
+introduced as a fourth orthogonal axis (`events.setting`, migration
+0017) — event-context tags derived deterministically from venue +
+start-time + lineup follower totals.
+
+Migrations 0017 / 0018 / 0019 cover schema add, data cleanup with
+audit backup (16 deletes + 9 renames + 4 wrong-granularity moves),
+and the user_prefs split. Genre normalizer
+(`packages/ingestion/src/genre-normalizer.ts`) guards every
+ingestion write boundary so future scrapes can't reintroduce junk.
+Pref-aware sort wired into the home filter UI: signed-in users see
+their onboarding-picked genres bubble to the top of the visible-by-
+default 14.
 
 ---
 
@@ -215,8 +277,9 @@ demand is proven.
   Railway cron for any new enrichment passes, Supabase for storage.
   No new hosts.
 - **Schema migrations get numbered sequentially.** Next available is
-  `0015_*` (0013 shipped profiles+avatars, 0014 shipped user_prefs
-  onboarding extensions). Migrations don't get rewritten; if a change
+  `0020_*`. Recent additions: 0015 dedup function, 0016 venue.image_url,
+  0017 events.setting, 0018 genre cleanup + remap, 0019 user_prefs
+  preferred_setting split. Migrations don't get rewritten; if a change
   is wrong, it's superseded by the next numbered migration.
 - **User-facing ML stays simple.** Tag-overlap scoring, exponential
   moving averages, weighted popularity — no model training, no vector
@@ -227,36 +290,50 @@ demand is proven.
 
 ---
 
-## Active follow-ups (Phase 4 tail)
+## Active follow-ups
 
-### 4f.7 — Resume `spotify-catchup` after rate-limit burn
+### Venue image_url backfill (Phase 3.17 tail)
 
-Catchup run on 2026-04-21 processed ~321/732 never-attempted artists
-before Spotify returned `retry-after: 83763s` (~23.3h) on the Client
-Credentials quota at row 322. Kernel `--concurrency 4` pushed ~320
-requests through in ~60s, which burned the window.
+Top NYC venues still rendering the gradient placeholder when no event
+hero + no lineup avatar. Counts are upcoming-event impact at time of
+3.17 ship:
 
-**Resume:** on or after **2026-04-22 22:00 EDT (2026-04-23 02:00 UTC)**
-— once the retry-after window has elapsed.
+- Public Records (16 events)
+- Apollo Studio (6)
+- Outer Heaven (5)
+- Jupiter Disco (3)
+- Bossa Nova Civic Club (2)
 
-```
-pnpm --filter @curi/ingestion spotify-catchup --concurrency 2
-```
+OG-image scraping was attempted but proved unreliable (publicrecords.nyc
+returned an SVG logo, bossanovacivicclub.nyc was unreachable, House of
+Yes returned a wordmark PNG). Two viable paths:
 
-Drop `--concurrency` to 2 this run to stay well inside the window.
-Remaining queue is ~390 artists; at 2-concurrency + 100ms throttle
-that's ~4 minutes, comfortably below any burn threshold.
+1. **Google Places Photos API** (preferred) — paid but reliable, ~one
+   high-quality photo per venue, low ongoing cost.
+2. **Manual curation** — pull a hand-picked image per venue from their
+   Instagram or press kit, host on Supabase Storage. Higher curation
+   effort, zero ongoing cost.
 
-### 4f.8 — Artist-table cleanup pass (event-title pollution)
+Either way, the destination column is `venues.image_url` from migration
+0016. Once populated, the EventCard fallback chain picks them up
+automatically.
 
-Catchup run surfaced ~50–100 rows in `artists` that are actually event
-titles / lineup strings leaking in through pre-`classifyArtistName`
-scraper paths — "REGGAETON Boat Party NYC Yacht Cruise", "Refuge
-Fridays", "Cinco De Mayo Party at Dive Bar", "The Nursery: HAAi All
-Day Long", "- Brooklyn Warehouse", etc. Approach: expand
-`EVENT_WORD_PATTERNS` and `NOISE_EXACT` in
-`packages/ingestion/src/artist-parsing.ts`, then run the existing
-`audit.ts` + `audit-cleanup.ts --category=non_artist_names --apply`
-pipeline (which already backs up to `artists_audit_backup` and
-cascades `event_artists` deletes). Proposed patterns + the 53-row
-candidate delete list to be reviewed with Christian before commit.
+### Spotify followers backfill (Phase 3.18 tail)
+
+The Phase 3.18 underground rule omits Spotify follower count because
+~1000 artists have empty `spotify_followers`. Backfill from existing
+Spotify enrichment context — the `/v1/artists/{id}` response we already
+fetch carries a `followers.total` field. Tightens the "lineup is small"
+half of the underground heuristic without rerunning LLM enrichment.
+
+### Phase 4 tail — both shipped
+
+- **4f.7 — Resume `spotify-catchup` after rate-limit burn — done.**
+  Cooldown cleared on 2026-04-23; resumed at `--concurrency 2`,
+  remaining queue processed in ~4 minutes without re-burning the window.
+- **4f.8 — Artist-table cleanup pass — done.** Expanded
+  `EVENT_WORD_PATTERNS` + `NOISE_EXACT` in
+  `packages/ingestion/src/artist-parsing.ts`, ran `audit.ts` +
+  `audit-cleanup.ts --category=non_artist_names --apply`. ~13 garbage
+  artist rows deleted with audit backup; cascaded `event_artists`
+  deletes handled cleanly.
