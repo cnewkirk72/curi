@@ -21,6 +21,11 @@ export type DefaultWhen = 'weekend' | 'tonight' | 'week' | null;
 export type UserPrefs = {
   preferred_genres: string[];
   preferred_vibes: string[];
+  /** Phase 3.18 — selected event-context settings (warehouse, basement,
+   *  daytime, peak-time, late-night, outdoor, underground). Distinct
+   *  from preferred_vibes (artist-mood). Backed by user_prefs.preferred_setting
+   *  added in migration 0019. */
+  preferred_setting: string[];
   preferred_subgenres: string[];
   digest_email: boolean;
   default_when: DefaultWhen;
@@ -39,6 +44,7 @@ export type UserPrefs = {
 export const DEFAULT_PREFS: UserPrefs = {
   preferred_genres: [],
   preferred_vibes: [],
+  preferred_setting: [],
   preferred_subgenres: [],
   digest_email: false,
   default_when: null,
@@ -62,7 +68,7 @@ export async function getUserPrefs(): Promise<UserPrefs> {
   const { data, error } = await supabase
     .from('user_prefs')
     .select(
-      'preferred_genres, preferred_vibes, preferred_subgenres, digest_email, default_when, notify_artist_drops, location_opt_in, calendar_opt_in, onboarding_completed_at',
+      'preferred_genres, preferred_vibes, preferred_setting, preferred_subgenres, digest_email, default_when, notify_artist_drops, location_opt_in, calendar_opt_in, onboarding_completed_at',
     )
     .maybeSingle();
 
@@ -81,6 +87,7 @@ export async function getUserPrefs(): Promise<UserPrefs> {
   return {
     preferred_genres: row.preferred_genres ?? [],
     preferred_vibes: row.preferred_vibes ?? [],
+    preferred_setting: row.preferred_setting ?? [],
     preferred_subgenres: row.preferred_subgenres ?? [],
     digest_email: !!row.digest_email,
     default_when:

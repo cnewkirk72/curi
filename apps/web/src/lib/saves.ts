@@ -21,6 +21,7 @@ type SavedRow = {
     image_url: string | null;
     genres: string[] | null;
     vibes: string[] | null;
+    setting: string[] | null;
     price_min: number | null;
     price_max: number | null;
     ticket_url: string | null;
@@ -73,6 +74,7 @@ export async function getSavedEvents(): Promise<FeedEvent[]> {
         image_url,
         genres,
         vibes,
+        setting,
         price_min,
         price_max,
         ticket_url,
@@ -123,6 +125,7 @@ export async function getSavedEvents(): Promise<FeedEvent[]> {
       image_url: e.image_url,
       genres: e.genres ?? [],
       vibes: e.vibes ?? [],
+      setting: e.setting ?? [],
       price_min: e.price_min,
       price_max: e.price_max,
       ticket_url: e.ticket_url,
