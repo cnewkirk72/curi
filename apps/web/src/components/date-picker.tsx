@@ -408,6 +408,10 @@ export function DatePicker(props: DatePickerProps) {
               : isToday && inMonth) ||
             (!focusedKey && !cells.some((c) => c.key === todayDayKey) && inMonth && day === 1);
 
+          if (!inMonth) {
+            return <div key={key} role="gridcell" aria-hidden />;
+          }
+
           return (
             <div
               key={key}
@@ -440,8 +444,7 @@ export function DatePicker(props: DatePickerProps) {
                   'font-display text-xs font-medium tabular',
                   'transition-colors duration-micro ease-expo',
                   // Base state
-                  !selected && !disabled && inMonth && 'text-fg-primary hover:bg-bg-elevated-hover',
-                  !selected && !disabled && !inMonth && 'text-fg-dim hover:bg-bg-elevated-hover',
+                  !selected && !disabled && 'text-fg-primary hover:bg-bg-elevated-hover',
                   // Today ring (only when not selected)
                   isToday && !selected && 'ring-1 ring-accent/60',
                   // Selected (single or range edge)
