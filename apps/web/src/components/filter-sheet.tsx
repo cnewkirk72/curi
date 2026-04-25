@@ -15,15 +15,16 @@
 
 import { Fragment, useEffect, useMemo, useState, useTransition } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
-import { CalendarRange, X } from 'lucide-react';
+import { CalendarRange, ChevronDown, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
   DATE_OPTIONS,
-  GENRE_OPTIONS,
-  VIBE_OPTIONS,
+  SETTING_OPTIONS,
   labelForDateRange,
   parentHasSubgenres,
   serializeFilters,
+  sortGenresByPrefs,
+  sortVibesByPrefs,
   subgenresForParent,
   type DateFilter,
   type FilterState,
@@ -37,20 +38,44 @@ type Props = {
   open: boolean;
   onClose: () => void;
   initialFilters: FilterState;
+  /** Phase 3.18 — onboarding-time prefs used to bubble preferred
+   *  genres/vibes to the front of their respective rows. Pass
+   *  undefined for anon viewers. */
+  userPrefs?: { genres: string[]; vibes: string[] };
 };
 
-export function FilterSheet({ open, onClose, initialFilters }: Props) {
+export function FilterSheet({ open, onClose, initialFilters, userPrefs }: Props) {
   const router = useRouter();
   const pathname = usePathname();
   const [isPending, startTransition] = useTransition();
   const [draft, setDraft] = useState<FilterState>(initialFilters);
+  // "More genres" reveal — collapsed on each open, matching the
+  // desktop sidebar.
+  const [showMoreGenres, setShowMoreGenres] = useState(false);
+
+  // Pref-aware genre/vibe ordering. Recomputed only when prefs
+  // change (basically never within a session) so the sort isn't
+  // doing extra work on every keystroke inside the sheet.
+  const { visible: visibleGenres, more: moreGenres } = useMemo(
+    () => sortGenresByPrefs(userPrefs?.genres ?? []),
+    [userPrefs?.genres],
+  );
+  const sortedVibes = useMemo(
+    () => sortVibesByPrefs(userPrefs?.vibes ?? []),
+    [userPrefs?.vibes],
+  );
 
   // Re-seed the draft whenever the sheet opens — the URL might have
   // changed since the last open (e.g. user hit "Clear" on the bar),
   // and we want the sheet to reflect the current URL, not the draft
-  // the user abandoned last time.
+  // the user abandoned last time. Also reset the More-genres
+  // disclosure to collapsed (per Phase 3.18 spec — power users still
+  // get their picks via pref ordering).
   useEffect(() => {
-    if (open) setDraft(initialFilters);
+    if (open) {
+      setDraft(initialFilters);
+      setShowMoreGenres(false);
+    }
   }, [open, initialFilters]);
 
   // Scroll lock while the sheet is open — keeps the feed beneath
@@ -94,6 +119,7 @@ export function FilterSheet({ open, onClose, initialFilters }: Props) {
       date_to: null,
       genres: [],
       vibes: [],
+      setting: [],
       subgenres: [],
     });
   }
@@ -156,7 +182,7 @@ export function FilterSheet({ open, onClose, initialFilters }: Props) {
 
   return (
     <>
-      {/* Backdrop ────────────────────────────────────────────────── */}
+      {/* Backdrop ─────────────────────────────────────────────────────── */}
       <div
         aria-hidden
         onClick={onClose}
@@ -167,7 +193,7 @@ export function FilterSheet({ open, onClose, initialFilters }: Props) {
         )}
       />
 
-      {/* Sheet ───────────────────────────────────────────────────── */}
+      {/* Sheet ───────────────────────────────────────────────────────── */}
       <div
         role="dialog"
         aria-modal="true"
@@ -243,32 +269,47 @@ export function FilterSheet({ open, onClose, initialFilters }: Props) {
                 everywhere. */}
             <Section label="Genre" hint="Multi-select">
               <div className="flex flex-wrap gap-2">
-                {GENRE_OPTIONS.map((opt) => {
-                  const parentActive = draft.genres.includes(opt.slug);
-                  const showSubPicker =
-                    parentActive && parentHasSubgenres(opt.slug);
-                  return (
-                    <Fragment key={opt.slug}>
-                      <GenrePill
-                        active={parentActive}
-                        hasChildren={parentHasSubgenres(opt.slug)}
-                        onClick={() => toggleGenre(opt.slug)}
-                      >
-                        {opt.label}
-                      </GenrePill>
-                      {showSubPicker && (
-                        <SubgenrePicker
-                          parents={[opt.slug]}
-                          selectedParents={[opt.slug]}
-                          subgenresByParent={subgenresByParent}
-                          selectedSubgenres={draft.subgenres}
-                          onToggle={toggleSubgenre}
-                        />
-                      )}
-                    </Fragment>
-                  );
-                })}
+                {visibleGenres.map((opt) => (
+                  <SheetGenreWithSubs
+                    key={opt.slug}
+                    opt={opt}
+                    draft={draft}
+                    subgenresByParent={subgenresByParent}
+                    onToggleGenre={toggleGenre}
+                    onToggleSubgenre={toggleSubgenre}
+                  />
+                ))}
+                {showMoreGenres &&
+                  moreGenres.map((opt) => (
+                    <SheetGenreWithSubs
+                      key={opt.slug}
+                      opt={opt}
+                      draft={draft}
+                      subgenresByParent={subgenresByParent}
+                      onToggleGenre={toggleGenre}
+                      onToggleSubgenre={toggleSubgenre}
+                    />
+                  ))}
               </div>
+              {moreGenres.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setShowMoreGenres((v) => !v)}
+                  aria-expanded={showMoreGenres}
+                  className={cn(
+                    'mt-3 inline-flex items-center gap-1 text-2xs font-medium uppercase tracking-widest text-fg-muted',
+                    'transition hover:text-fg-primary',
+                  )}
+                >
+                  <ChevronDown
+                    className={cn(
+                      'h-3 w-3 transition-transform duration-micro ease-expo',
+                      showMoreGenres && 'rotate-180',
+                    )}
+                  />
+                  {showMoreGenres ? 'Fewer genres' : `More genres (+${moreGenres.length})`}
+                </button>
+              )}
               {/* Hint — surfaced only when no parents are selected,
                   to tell users subgenres will appear. Fades out as
                   soon as any parent is on. */}
@@ -279,15 +320,32 @@ export function FilterSheet({ open, onClose, initialFilters }: Props) {
               )}
             </Section>
 
-            {/* Vibe */}
+            {/* Vibe (artist-mood). Phase 3.18 — pref-sorted so the
+                user's onboarding picks bubble to the front. */}
             <Section label="Vibe" hint="Multi-select">
               <OptionGrid
-                options={VIBE_OPTIONS}
+                options={sortedVibes}
                 selected={draft.vibes}
                 onToggle={(slug) =>
                   setDraft((d) => ({
                     ...d,
                     vibes: toggle(d.vibes, slug),
+                  }))
+                }
+              />
+            </Section>
+
+            {/* Setting (event context, optional). Phase 3.18 —
+                rendered below Vibe per the spec; backed by
+                events.setting (migration 0017). */}
+            <Section label="Setting" hint="Optional">
+              <OptionGrid
+                options={SETTING_OPTIONS}
+                selected={draft.setting}
+                onToggle={(slug) =>
+                  setDraft((d) => ({
+                    ...d,
+                    setting: toggle(d.setting, slug),
                   }))
                 }
               />
@@ -324,7 +382,7 @@ export function FilterSheet({ open, onClose, initialFilters }: Props) {
   );
 }
 
-// ── Subcomponents ──────────────────────────────────────────────────
+// ── Subcomponents ───────────────────────────────────────────────
 
 function Section({
   label,
@@ -479,6 +537,47 @@ function CustomDateDisclosure({
         </div>
       )}
     </div>
+  );
+}
+
+// Renders a single genre pill plus its inline subgenre picker when
+// the parent is selected. Mirror of GenreWithSubs in the desktop
+// sidebar — separate copy because the sheet uses draft state via
+// setDraft instead of immediate router.push.
+function SheetGenreWithSubs({
+  opt,
+  draft,
+  subgenresByParent,
+  onToggleGenre,
+  onToggleSubgenre,
+}: {
+  opt: FilterOption;
+  draft: FilterState;
+  subgenresByParent: Map<string, FilterOption[]>;
+  onToggleGenre: (slug: string) => void;
+  onToggleSubgenre: (slug: string) => void;
+}) {
+  const parentActive = draft.genres.includes(opt.slug);
+  const showSubPicker = parentActive && parentHasSubgenres(opt.slug);
+  return (
+    <Fragment>
+      <GenrePill
+        active={parentActive}
+        hasChildren={parentHasSubgenres(opt.slug)}
+        onClick={() => onToggleGenre(opt.slug)}
+      >
+        {opt.label}
+      </GenrePill>
+      {showSubPicker && (
+        <SubgenrePicker
+          parents={[opt.slug]}
+          selectedParents={[opt.slug]}
+          subgenresByParent={subgenresByParent}
+          selectedSubgenres={draft.subgenres}
+          onToggle={onToggleSubgenre}
+        />
+      )}
+    </Fragment>
   );
 }
 

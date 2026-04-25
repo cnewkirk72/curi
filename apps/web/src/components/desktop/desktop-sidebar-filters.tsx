@@ -23,18 +23,19 @@
 // manipulation — the mobile Apply pattern is there to batch changes
 // behind a modal that hides the feed.
 
-import { Fragment, useMemo, useTransition } from 'react';
+import { Fragment, useMemo, useState, useTransition } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { CalendarRange } from 'lucide-react';
+import { CalendarRange, ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
   DATE_OPTIONS,
-  GENRE_OPTIONS,
-  VIBE_OPTIONS,
+  SETTING_OPTIONS,
   labelForDateRange,
   parentHasSubgenres,
   parseFilters,
   serializeFilters,
+  sortGenresByPrefs,
+  sortVibesByPrefs,
   subgenresForParent,
   hasActiveFilters,
   type DateFilter,
@@ -45,14 +46,43 @@ import { getSubgenresByParent } from '@/lib/taxonomy';
 import { SubgenrePicker } from '@/components/subgenre-picker';
 import { DatePicker, nycTodayDayKey, type SingleValue } from '@/components/date-picker';
 
-export function DesktopSidebarFilters() {
+export function DesktopSidebarFilters({
+  userPrefs,
+}: {
+  /** Phase 3.18 — onboarding-time preferences used to bubble preferred
+   *  genres/vibes to the front of their respective rows on the home
+   *  feed. Pass undefined for anon viewers — falls back to default
+   *  ordering. */
+  userPrefs?: { genres: string[]; vibes: string[] };
+} = {}) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [isPending, startTransition] = useTransition();
 
+  // "More genres" reveal — collapsed by default, resets to collapsed
+  // on each visit (per the Phase 3.18 spec). We don't persist this
+  // because user-pref ordering already promotes the user's most-cared-
+  // about genres into the always-visible row, so the More disclosure
+  // is for genuine exploration ("what else is out there") rather than
+  // permanent navigation.
+  const [showMoreGenres, setShowMoreGenres] = useState(false);
+
   const filters = parseFilters(searchParams);
   const active = hasActiveFilters(filters);
+
+  // Pref-aware genre split: user's preferred genres bubble to the
+  // front of the visible-by-default 14, default order fills the rest.
+  // Recomputed only on prefs change (effectively never within a
+  // session) — useMemo guards against unnecessary churn.
+  const { visible: visibleGenres, more: moreGenres } = useMemo(
+    () => sortGenresByPrefs(userPrefs?.genres ?? []),
+    [userPrefs?.genres],
+  );
+  const sortedVibes = useMemo(
+    () => sortVibesByPrefs(userPrefs?.vibes ?? []),
+    [userPrefs?.vibes],
+  );
 
   // Shared subgenre Map — computed once, same as the mobile sheet.
   const subgenresByParent = useMemo(() => getSubgenresByParent(), []);
@@ -69,7 +99,7 @@ export function DesktopSidebarFilters() {
     });
   }
 
-  // ── Preset "When" selection ────────────────────────────────
+  // ── Preset "When" selection ─────────────────────────────────
   function selectPreset(slug: Exclude<DateFilter, 'custom'>) {
     commit({
       ...filters,
@@ -79,7 +109,7 @@ export function DesktopSidebarFilters() {
     });
   }
 
-  // ── Custom single-date selection ───────────────────────────
+  // ── Custom single-date selection ───────────────────────────────
   // Picking a day sets `when='custom'` with `date_from = day` and
   // `date_to = null` — i.e. "from this day onward". Re-tapping the
   // same day in the picker clears it (handled by DatePicker's single
@@ -101,7 +131,7 @@ export function DesktopSidebarFilters() {
     commit({ ...filters, when: 'all', date_from: null, date_to: null });
   }
 
-  // ── Genre / subgenre / vibe toggles ───────────────────────
+  // ── Genre / subgenre / vibe toggles ─────────────────────────────
   function toggle(list: string[], slug: string): string[] {
     return list.includes(slug) ? list.filter((s) => s !== slug) : [...list, slug];
   }
@@ -130,6 +160,10 @@ export function DesktopSidebarFilters() {
     commit({ ...filters, vibes: toggle(filters.vibes, slug) });
   }
 
+  function toggleSetting(slug: string) {
+    commit({ ...filters, setting: toggle(filters.setting, slug) });
+  }
+
   function clearAll() {
     commit({
       when: 'all',
@@ -137,6 +171,7 @@ export function DesktopSidebarFilters() {
       date_to: null,
       genres: [],
       vibes: [],
+      setting: [],
       subgenres: [],
     });
   }
@@ -226,31 +261,47 @@ export function DesktopSidebarFilters() {
         {/* ── Genre + inline Subgenre picker ─────────────── */}
         <Section label="Genre" hint="Multi-select">
           <div className="flex flex-wrap gap-2">
-            {GENRE_OPTIONS.map((opt) => {
-              const parentActive = filters.genres.includes(opt.slug);
-              const showSubPicker = parentActive && parentHasSubgenres(opt.slug);
-              return (
-                <Fragment key={opt.slug}>
-                  <GenrePill
-                    active={parentActive}
-                    hasChildren={parentHasSubgenres(opt.slug)}
-                    onClick={() => toggleGenre(opt.slug)}
-                  >
-                    {opt.label}
-                  </GenrePill>
-                  {showSubPicker && (
-                    <SubgenrePicker
-                      parents={[opt.slug]}
-                      selectedParents={[opt.slug]}
-                      subgenresByParent={subgenresByParent}
-                      selectedSubgenres={filters.subgenres}
-                      onToggle={toggleSubgenre}
-                    />
-                  )}
-                </Fragment>
-              );
-            })}
+            {visibleGenres.map((opt) => (
+              <GenreWithSubs
+                key={opt.slug}
+                opt={opt}
+                filters={filters}
+                subgenresByParent={subgenresByParent}
+                onToggleGenre={toggleGenre}
+                onToggleSubgenre={toggleSubgenre}
+              />
+            ))}
+            {showMoreGenres &&
+              moreGenres.map((opt) => (
+                <GenreWithSubs
+                  key={opt.slug}
+                  opt={opt}
+                  filters={filters}
+                  subgenresByParent={subgenresByParent}
+                  onToggleGenre={toggleGenre}
+                  onToggleSubgenre={toggleSubgenre}
+                />
+              ))}
           </div>
+          {moreGenres.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setShowMoreGenres((v) => !v)}
+              aria-expanded={showMoreGenres}
+              className={cn(
+                'mt-3 inline-flex items-center gap-1 text-2xs font-medium uppercase tracking-widest text-fg-muted',
+                'transition hover:text-fg-primary',
+              )}
+            >
+              <ChevronDown
+                className={cn(
+                  'h-3 w-3 transition-transform duration-micro ease-expo',
+                  showMoreGenres && 'rotate-180',
+                )}
+              />
+              {showMoreGenres ? 'Fewer genres' : `More genres (+${moreGenres.length})`}
+            </button>
+          )}
           {filters.genres.length === 0 && (
             <p className="mt-2 text-[11px] text-fg-dim">
               Pick a genre to reveal subgenres.
@@ -258,16 +309,71 @@ export function DesktopSidebarFilters() {
           )}
         </Section>
 
-        {/* ── Vibe ─────────────────────────────────────── */}
+        {/* ── Vibe (artist-mood) ──────────────────────────── */}
         <Section label="Vibe" hint="Multi-select">
           <OptionGrid
-            options={VIBE_OPTIONS}
+            options={sortedVibes}
             selected={filters.vibes}
             onToggle={toggleVibe}
           />
         </Section>
+
+        {/* ── Setting (event context, optional) ────────────
+             Phase 3.18 — rendered below Vibe per the spec. Backed
+             by events.setting (migration 0017), populated by the
+             SQL derivation in migration 0018. Optional filter:
+             empty selection means "all settings."
+         */}
+        <Section label="Setting" hint="Optional">
+          <OptionGrid
+            options={SETTING_OPTIONS}
+            selected={filters.setting}
+            onToggle={toggleSetting}
+          />
+        </Section>
       </div>
     </aside>
+  );
+}
+
+// Helper component — renders a single genre pill plus its inline
+// subgenre picker when the parent is selected. Factored out so the
+// "default-visible" and "more genres" rows can share the same render
+// logic without copy-pasting the Fragment/picker dance.
+function GenreWithSubs({
+  opt,
+  filters,
+  subgenresByParent,
+  onToggleGenre,
+  onToggleSubgenre,
+}: {
+  opt: FilterOption;
+  filters: FilterState;
+  subgenresByParent: Map<string, FilterOption[]>;
+  onToggleGenre: (slug: string) => void;
+  onToggleSubgenre: (slug: string) => void;
+}) {
+  const parentActive = filters.genres.includes(opt.slug);
+  const showSubPicker = parentActive && parentHasSubgenres(opt.slug);
+  return (
+    <Fragment>
+      <GenrePill
+        active={parentActive}
+        hasChildren={parentHasSubgenres(opt.slug)}
+        onClick={() => onToggleGenre(opt.slug)}
+      >
+        {opt.label}
+      </GenrePill>
+      {showSubPicker && (
+        <SubgenrePicker
+          parents={[opt.slug]}
+          selectedParents={[opt.slug]}
+          subgenresByParent={subgenresByParent}
+          selectedSubgenres={filters.subgenres}
+          onToggle={onToggleSubgenre}
+        />
+      )}
+    </Fragment>
   );
 }
 
