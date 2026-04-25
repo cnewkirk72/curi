@@ -2,7 +2,7 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ──────────────────────────────────────────────────────────────────────
+/* ────────────────────────────────────────────────────────────────────
  * Curi — Midnight + Cyan Glow design tokens.
  *
  * Canonical reference: design-system/MASTER.md at the repo root.
@@ -10,7 +10,7 @@
  * `hsl(var(--x))` + opacity modifier pattern keeps working
  * (e.g. `bg-accent/20`). rgba values live as full variables for the
  * glass surfaces and glow shadows where the alpha is intentional.
- * ────────────────────────────────────────────────────────────────────── */
+ * ──────────────────────────────────────────────────────────────────── */
 @layer base {
   :root {
     /* Canvas */
@@ -60,6 +60,19 @@
     font-family: var(--font-sans), system-ui, -apple-system, sans-serif;
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
+  }
+
+  /* Document-level horizontal-overflow guard. The mobile home page uses
+   * absolutely-positioned ambient blobs (`-right-20`, `-left-16`) that
+   * extend ~80px past the 430px content column — without this clip the
+   * document picks up a horizontal scroll on phones, exposing empty
+   * canvas when the user drags. Vertical scroll is unaffected; internal
+   * `overflow-x-auto` containers (e.g. the active-chip row in
+   * filter-bar.tsx) keep their own horizontal scroll because they're
+   * scoped scroll containers, not the document. */
+  html,
+  body {
+    overflow-x: hidden;
   }
 
   /* Tabular figures for all numeric UI: times, dates, prices, counters.
