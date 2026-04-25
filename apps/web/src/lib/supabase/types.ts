@@ -174,6 +174,7 @@ export type Database = {
           price_max: number | null
           price_min: number | null
           raw: Json | null
+          setting: string[] | null
           source: string
           source_id: string
           starts_at: string
@@ -194,6 +195,7 @@ export type Database = {
           price_max?: number | null
           price_min?: number | null
           raw?: Json | null
+          setting?: string[] | null
           source: string
           source_id: string
           starts_at: string
@@ -214,6 +216,7 @@ export type Database = {
           price_max?: number | null
           price_min?: number | null
           raw?: Json | null
+          setting?: string[] | null
           source?: string
           source_id?: string
           starts_at?: string
@@ -359,6 +362,7 @@ export type Database = {
           notify_artist_drops: boolean
           onboarding_completed_at: string | null
           preferred_genres: string[]
+          preferred_setting: string[]
           preferred_subgenres: string[]
           preferred_vibes: string[]
           updated_at: string
@@ -373,6 +377,7 @@ export type Database = {
           notify_artist_drops?: boolean
           onboarding_completed_at?: string | null
           preferred_genres?: string[]
+          preferred_setting?: string[]
           preferred_subgenres?: string[]
           preferred_vibes?: string[]
           updated_at?: string
@@ -387,6 +392,7 @@ export type Database = {
           notify_artist_drops?: boolean
           onboarding_completed_at?: string | null
           preferred_genres?: string[]
+          preferred_setting?: string[]
           preferred_subgenres?: string[]
           preferred_vibes?: string[]
           updated_at?: string
@@ -426,6 +432,7 @@ export type Database = {
           default_genres: string[] | null
           default_vibes: string[] | null
           id: string
+          image_url: string | null
           lat: number | null
           lng: number | null
           name: string
@@ -438,6 +445,7 @@ export type Database = {
           default_genres?: string[] | null
           default_vibes?: string[] | null
           id?: string
+          image_url?: string | null
           lat?: number | null
           lng?: number | null
           name: string
@@ -450,6 +458,7 @@ export type Database = {
           default_genres?: string[] | null
           default_vibes?: string[] | null
           id?: string
+          image_url?: string | null
           lat?: number | null
           lng?: number | null
           name?: string
@@ -465,6 +474,28 @@ export type Database = {
     }
     Functions: {
       curi_slugify: { Args: { input: string }; Returns: string }
+      find_dupe_event_by_artist: {
+        Args: {
+          p_artist_slugs: string[]
+          p_exclude_source: string
+          p_exclude_source_id: string
+          p_starts_at: string
+          p_venue_id: string
+        }
+        Returns: {
+          description: string
+          ends_at: string
+          id: string
+          image_url: string
+          price_max: number
+          price_min: number
+          source: string
+          source_id: string
+          starts_at: string
+          ticket_url: string
+          title: string
+        }[]
+      }
     }
     Enums: {
       [_ in never]: never

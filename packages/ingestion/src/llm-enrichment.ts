@@ -47,9 +47,10 @@ import {
 import { searchExa, findProfileUrls, type ExaResult } from './exa.js';
 import { fetchArtistSelfTags } from './firecrawl.js';
 import { findNearMatch, normalizeForTaxonomy } from './taxonomy-fuzzy.js';
+import { normalizeGenres } from './genre-normalizer.js';
 import type { PopularityResult } from './popularity-discovery.js';
 
-// ── Public types ────────────────────────────────────────────────────
+// ── Public types ─────────────────────────────────────────
 
 export interface EnrichmentContext {
   /** Venue default_genres/default_vibes if available. */
@@ -103,7 +104,7 @@ export interface EnrichmentResult {
   popularity: PopularityResult | null;
 }
 
-// ── Vocabulary loader ─────────────────────────────────────────────────
+// ── Vocabulary loader ──────────────────────────────────────
 
 interface Vocabulary {
   parentGenres: string[]; // flattened taxonomy_map.genres, deduped
@@ -162,7 +163,7 @@ export function _resetVocabularyCache(): void {
   vocabCache = null;
 }
 
-// ── Prompt builders ───────────────────────────────────────────────────
+// ── Prompt builders ──────────────────────────────────────────
 
 function buildSystemPrompt(vocab: Vocabulary): string {
   return [
@@ -289,7 +290,7 @@ function buildUserMessage(name: string, context: EnrichmentContext): string {
   return lines.join('\n');
 }
 
-// ── Tool schemas ───────────────────────────────────────────────────────
+// ── Tool schemas ──────────────────────────────────────────────
 
 const TOOLS: ToolDefinition[] = [
   {
@@ -387,7 +388,7 @@ const TOOLS: ToolDefinition[] = [
   },
 ];
 
-// ── Orchestrator ────────────────────────────────────────────────────────
+// ── Orchestrator ─────────────────────────────────────────────────
 
 interface SubmittedEnrichment {
   genres: unknown;
@@ -524,9 +525,29 @@ export async function enrichArtistWithLLM(
   const fuzzyMerges: EnrichmentResult['fuzzyMerges'] = [];
   const s: SubmittedEnrichment = submitted;
 
+  // Phase 3.18 — normalize the LLM's genre output before persistence.
+  // This catches:
+  //   - Junk slugs the LLM occasionally hallucinates (label names like
+  //     'brainfeeder', country tags from MB context bleeding into the
+  //     output, format descriptors like 'spoken-word').
+  //   - Wrong-granularity slugs (e.g. 'industrial' as a parent genre
+  //     when it's a subgenre under techno). The normalizer demotes
+  //     these and surfaces the canonical subgenre, which we merge into
+  //     the LLM's existing subgenres so the artist's row carries the
+  //     correct parent + child after this write.
+  //   - Typos / non-canonical spellings (synthpop → synth-pop etc).
+  //
+  // Normalize first, fuzzy-match second — fuzzy matching against the
+  // vocabulary is fine on the cleaned set, and normalizing the fuzzy
+  // output would risk re-accepting a slug the LLM wrote that fuzz-
+  // matched to a now-deny-listed term.
+  const cleaned = normalizeGenres(dedupeClean(s.genres));
+  const subgenresFromInput = Array.isArray(s.subgenres) ? s.subgenres : [];
+  const mergedSubgenres = [...subgenresFromInput, ...cleaned.subgenresAdded];
+
   return {
-    genres: dedupeClean(s.genres),
-    subgenres: mergeFuzzy(s.subgenres, vocab.subgenres, fuzzyMerges),
+    genres: cleaned.genres,
+    subgenres: mergeFuzzy(mergedSubgenres, vocab.subgenres, fuzzyMerges),
     vibes: mergeFuzzy(s.vibes, vocab.vibes, fuzzyMerges),
     // If stalled, force confidence to 'very-low' regardless of what
     // the model claimed — stalled submissions ran out of iterations
@@ -545,7 +566,7 @@ export async function enrichArtistWithLLM(
   };
 }
 
-// ── Post-processing helpers ────────────────────────────────────────────────
+// ── Post-processing helpers ───────────────────────────────────────────────
 
 function dedupeClean(arr: unknown): string[] {
   if (!Array.isArray(arr)) return [];
