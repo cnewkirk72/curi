@@ -80,22 +80,40 @@ async function tryPlatform(
   } catch {
     return null;
   }
-  const matched = candidates.find((c) => isSlugMatch(artistName, c.url));
-  if (!matched) return null;
+  const matched = candidates.filter((c) => isSlugMatch(artistName, c.url));
+  if (matched.length === 0) return null;
 
-  try {
-    const scraped = await fetchArtistSelfTags(matched.url, 3);
-    return {
-      url: scraped.canonicalUrl ?? matched.url,
-      followers: scraped.followers ?? null,
-    };
-  } catch {
-    // Firecrawl failed (404, timeout, etc). We still have a
-    // confidence-checked URL — return it without followers so the
-    // orchestrator can persist the URL and the monthly popularity
-    // cron can retry the follower number later.
-    return { url: matched.url, followers: null };
-  }
+  // Scrape every slug-matching candidate so we can pick the highest-
+  // follower one. Common-handle squatters tend to share the slug with
+  // the real artist (e.g. soundcloud.com/dbbd squatter @ 19 followers
+  // vs the real DBBD at soundcloud.com/playdbbd @ 15.3k). Returning
+  // the first slug match — Exa's neural-rank winner — let the squatter
+  // win on short handles. Ranking by follower count breaks the tie
+  // toward the real artist. Bounded at 3 candidates per platform, so
+  // worst-case Firecrawl cost is 3x the previous single scrape.
+  const scraped = await Promise.all(
+    matched.map(async (cand) => {
+      try {
+        const r = await fetchArtistSelfTags(cand.url, 3);
+        return {
+          url: r.canonicalUrl ?? cand.url,
+          followers: r.followers ?? null,
+        };
+      } catch {
+        // Firecrawl failed (404, timeout, etc). Keep the URL but no
+        // follower count — the monthly popularity cron can retry. A
+        // failed scrape sorts behind any successful scrape, so we
+        // only fall back to it if every candidate failed.
+        return { url: cand.url, followers: null as number | null };
+      }
+    }),
+  );
+
+  // Highest follower count wins. Null/unknown counts treated as -1 so
+  // any verified count beats an unverified one, but the candidate
+  // ordering is otherwise stable on Exa's neural rank for ties.
+  scraped.sort((a, b) => (b.followers ?? -1) - (a.followers ?? -1));
+  return scraped[0] ?? null;
 }
 
 /**

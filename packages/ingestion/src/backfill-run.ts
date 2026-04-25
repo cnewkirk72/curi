@@ -546,15 +546,56 @@ async function processArtist(
     let popularity: PopularityResult | null = null;
 
     if (!skipPopularity) {
-      if (enrichment.popularity) {
-        popularity = enrichment.popularity;
+      const llmPop = enrichment.popularity;
+      // Sanity gate: LLM-captured SoundCloud popularity bypasses the
+      // homonym guard in popularity-discovery.ts (recordPopularity in
+      // llm-enrichment.ts trusts whatever URL the model handed in).
+      // That blew up on short/common handles where a squatter and the
+      // real artist share a slug — e.g. DBBD's row landed on
+      // soundcloud.com/dbbd (squatter, 19 followers) instead of
+      // soundcloud.com/playdbbd (real, 15.3k). Treat any LLM-captured
+      // SC URL with < 100 followers as unverified and re-run the
+      // domain-scoped discoverPopularity (which now ranks slug-matched
+      // candidates by follower count, so the real artist wins). 100 is
+      // chosen because real working NYC DJs in the catalog clear it
+      // easily, while squatter profiles virtually always sit at 0–30.
+      const llmScFollowers = llmPop?.soundcloudFollowers;
+      const llmScSuspicious =
+        !!llmPop?.soundcloudUrl &&
+        typeof llmScFollowers === 'number' &&
+        llmScFollowers < 100;
+
+      if (llmPop && !llmScSuspicious) {
+        popularity = llmPop;
       } else if (hasElectronicSignal(artist, context, enrichment)) {
-        popularity = await discoverPopularity(artist.name);
+        const discovered = await discoverPopularity(artist.name);
+        if (llmScSuspicious && llmPop) {
+          // Discovery's verdict overrides the suspicious LLM SC URL.
+          // If discovery returns no SC URL (no slug match), drop the
+          // URL rather than persist the squatter — better no playlist
+          // than the wrong one. Bandcamp data the LLM captured still
+          // survives if discovery didn't touch BC.
+          popularity = {
+            attempted: true,
+            soundcloudUrl: discovered.soundcloudUrl ?? null,
+            soundcloudFollowers: discovered.soundcloudFollowers ?? null,
+            bandcampUrl: discovered.bandcampUrl ?? llmPop.bandcampUrl ?? null,
+            bandcampFollowers:
+              discovered.bandcampFollowers ?? llmPop.bandcampFollowers ?? null,
+            sources: [...llmPop.sources, ...discovered.sources],
+          };
+        } else {
+          popularity = discovered;
+        }
       } else {
         // Non-electronic act, enrichment didn't touch Firecrawl. Skip
         // discovery — a folk/jazz act on SC is a low-value signal at
-        // Firecrawl credit cost.
-        popularity = { attempted: false, sources: [] };
+        // Firecrawl credit cost. (If the LLM did capture suspicious SC
+        // popularity here, we drop it rather than re-verify — a non-
+        // electronic act's SC presence is too thin to spend credits on.)
+        popularity = llmScSuspicious
+          ? { attempted: true, sources: llmPop?.sources ?? [] }
+          : llmPop ?? { attempted: false, sources: [] };
       }
     }
 
