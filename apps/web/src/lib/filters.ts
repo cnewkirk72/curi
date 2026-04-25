@@ -1,12 +1,28 @@
 // Filter state for the home feed. Source of truth is the URL search
-// params — `?when=weekend&genres=techno,house&vibes=warehouse` — so
-// filter URLs are shareable ("here's all the techno this weekend")
+// params — `?when=weekend&genres=techno,house&vibes=groovy&setting=warehouse`
+// — so filter URLs are shareable ("here's all the techno this weekend")
 // and back-button navigation works with no extra glue.
 //
 // `parseFilters` (server-side & client-side) converts searchParams
 // into a FilterState; `serializeFilters` goes the other way. The
 // sheet keeps a local draft state and only commits via router.push
 // on Apply — that's why we need the round-trip.
+//
+// ── Phase 3.18 vocabulary rebuild ───────────────────────────────────
+//
+// Genres: rebuilt from the post-Phase-3.15 NYC-wide data. Default-14
+// visible row + 10 in "More genres" (collapse/expand). Slugs match
+// `events.genres` byte-for-byte.
+//
+// Vibes: now exclusively the artist-mood vocabulary the LLM enrichment
+// already produces (groovy, hypnotic, dark, soulful, driving, ...).
+// The original "event-context" vibes (warehouse / peak-time / basement)
+// moved to a dedicated Setting filter, because they're produced by a
+// different pipeline (deterministic venue+time derivation, not LLM).
+//
+// Setting: new filter dimension backed by `events.setting` (migration
+// 0017). Vocabulary: warehouse, basement, outdoor, daytime, peak-time,
+// late-night, underground. Optional — most users won't touch it.
 
 import { nycDayKey } from './format';
 
@@ -43,6 +59,14 @@ export type FilterState = {
   genres: string[];
   vibes: string[];
   /**
+   * Phase 3.18 — event-context tags from a fixed vocabulary. See
+   * `SETTING_OPTIONS` below + migration 0017 + the SQL derivation
+   * comment on events.setting. Distinct from `vibes` (artist-mood)
+   * — keeps the "the show feels like X" signal separate from the
+   * "the artist sounds like Y" signal.
+   */
+  setting: string[];
+  /**
    * Subgenre slugs selected under the currently-active parent genres.
    * These filter the feed via `artists.subgenres` overlap (see
    * `lib/events.ts` — events don't carry subgenres directly; we
@@ -66,6 +90,7 @@ export const EMPTY_FILTERS: FilterState = {
   date_to: null,
   genres: [],
   vibes: [],
+  setting: [],
   subgenres: [],
 };
 
@@ -157,6 +182,10 @@ export function parseFilters(sp: ParamsLike): FilterState {
       .split(',')
       .map((s) => s.trim().toLowerCase())
       .filter(Boolean),
+    setting: (sp.get('setting') ?? '')
+      .split(',')
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean),
     // Subgenres are stored as-is rather than lowercased/dashed because
     // the underlying `artists.subgenres` values are inconsistent —
     // some hyphenated (`hard-techno`), some space-separated
@@ -185,6 +214,7 @@ export function serializeFilters(state: FilterState): string {
   }
   if (state.genres.length) params.set('genres', state.genres.join(','));
   if (state.vibes.length) params.set('vibes', state.vibes.join(','));
+  if (state.setting.length) params.set('setting', state.setting.join(','));
   if (state.subgenres.length) params.set('subgenres', state.subgenres.join(','));
   return params.toString();
 }
@@ -194,6 +224,7 @@ export function hasActiveFilters(state: FilterState): boolean {
     state.when !== 'all' ||
     state.genres.length > 0 ||
     state.vibes.length > 0 ||
+    state.setting.length > 0 ||
     state.subgenres.length > 0
   );
 }
@@ -203,46 +234,117 @@ export function activeFilterCount(state: FilterState): number {
     (state.when !== 'all' ? 1 : 0) +
     state.genres.length +
     state.vibes.length +
+    state.setting.length +
     state.subgenres.length
   );
 }
 
 // ── Curated option lists ──────────────────────────────────────
-//
-// Grounded in the tags that actually appear in supabase/seed.sql
-// and the 2b ingestion output. A proper "show me the long tail"
-// view is a Phase 4 concern — these are the 12 genres and 8 vibes
-// that cover the overwhelming majority of NYC electronic nights.
-//
-// NOTE: `slug` is the value we filter on (matches the `events.genres`
-// / `events.vibes` text[] values); `label` is what users see.
 
 export type FilterOption = { slug: string; label: string };
 
+/**
+ * Genre vocabulary (Phase 3.18). 24 parents, ordered as:
+ *
+ *   - First 14: default-visible row in the filter sidebar / sheet.
+ *     Order chosen to surface the densest NYC-electronic genres first
+ *     (techno, house, bass, dnb, ...) so the most-used filters are
+ *     immediately tappable. (See `DEFAULT_VISIBLE_GENRES_COUNT` —
+ *     `sortGenresByPrefs` uses this constant to slice.)
+ *
+ *   - Last 10: "More genres" — revealed by an expand toggle. These
+ *     are real NYC-relevant genres with sparse-but-real coverage
+ *     (hip-hop, latin, indie, jazz, etc.) that we don't want to
+ *     surface by default but absolutely should be filterable.
+ *
+ * Slugs match `events.genres` byte-for-byte. If you add or rename
+ * here, also update the data — not the other way around.
+ */
 export const GENRE_OPTIONS: FilterOption[] = [
+  // Default-visible 14 (high-density NYC electronic + adjacent)
   { slug: 'techno', label: 'Techno' },
   { slug: 'house', label: 'House' },
-  { slug: 'deep-house', label: 'Deep House' },
-  { slug: 'jungle', label: 'Jungle' },
+  { slug: 'bass', label: 'Bass' },
   { slug: 'dnb', label: 'Drum & Bass' },
-  { slug: 'dubstep', label: 'Dubstep' },
-  { slug: 'garage', label: 'Garage' },
-  { slug: 'breakbeat', label: 'Breakbeat' },
-  { slug: 'ambient', label: 'Ambient' },
-  { slug: 'downtempo', label: 'Downtempo' },
   { slug: 'disco', label: 'Disco' },
+  { slug: 'electronic', label: 'Electronic' },
+  { slug: 'indie', label: 'Indie' },
+  { slug: 'breaks', label: 'Breaks' },
+  { slug: 'garage', label: 'Garage' },
+  { slug: 'experimental', label: 'Experimental' },
+  { slug: 'funk', label: 'Funk' },
   { slug: 'electro', label: 'Electro' },
+  { slug: 'trance', label: 'Trance' },
+  { slug: 'pop', label: 'Pop' },
+  // "More genres" — revealed via expand toggle
+  { slug: 'hip-hop', label: 'Hip-Hop' },
+  { slug: 'latin', label: 'Latin' },
+  { slug: 'ambient', label: 'Ambient' },
+  { slug: 'world', label: 'World' },
+  { slug: 'soul', label: 'Soul' },
+  { slug: 'rock', label: 'Rock' },
+  { slug: 'r&b', label: 'R&B' },
+  { slug: 'jazz', label: 'Jazz' },
+  { slug: 'reggae', label: 'Reggae' },
+  { slug: 'classical', label: 'Classical' },
 ];
 
+/** Index where "More genres" starts. The first N items in
+ * GENRE_OPTIONS are the always-visible default; the rest are
+ * revealed by the More toggle. */
+export const DEFAULT_VISIBLE_GENRES_COUNT = 14;
+
+/**
+ * Vibe vocabulary (Phase 3.18). Artist-mood descriptors only —
+ * the LLM enrichment pipeline is the source of these values
+ * (see `packages/ingestion/src/llm-enrichment.ts:177-178`).
+ *
+ * Renamed/dropped vs. the MVP list:
+ *   - `experimental` → renamed to `adventurous`. The genre filter
+ *     already exposes `experimental`; the Vibe variant captures
+ *     "this artist's character is adventurous" which is a different
+ *     dimension and benefits from a distinct label.
+ *   - `industrial` → dropped. The genre filter covers "industrial as
+ *     a sound" via the techno parent + industrial subgenre, and the
+ *     Setting filter covers "industrial as a venue type" via
+ *     warehouse/basement.
+ *
+ * The original event-context vibes (warehouse / peak-time / basement /
+ * daytime / queer / underground) moved to SETTING_OPTIONS — they were
+ * never producible by the artist-enrichment pipeline.
+ */
 export const VIBE_OPTIONS: FilterOption[] = [
-  { slug: 'warehouse', label: 'Warehouse' },
+  { slug: 'groovy', label: 'Groovy' },
+  { slug: 'hypnotic', label: 'Hypnotic' },
+  { slug: 'eclectic', label: 'Eclectic' },
+  { slug: 'dark', label: 'Dark' },
+  { slug: 'melodic', label: 'Melodic' },
+  { slug: 'energetic', label: 'Energetic' },
+  { slug: 'driving', label: 'Driving' },
+  { slug: 'soulful', label: 'Soulful' },
+  { slug: 'euphoric', label: 'Euphoric' },
+  { slug: 'ethereal', label: 'Ethereal' },
+  { slug: 'adventurous', label: 'Adventurous' },
+  { slug: 'cinematic', label: 'Cinematic' },
+];
+
+/**
+ * Setting vocabulary (Phase 3.18, NEW). Event-context tags derived
+ * deterministically from venue + start_at + lineup follower totals.
+ * See migration 0017 + the SQL derivation in the cleanup migration
+ * for the exact mapping rules.
+ *
+ * Optional filter — most users will never touch it. Renders below
+ * Vibe in the sidebar / sheet.
+ */
+export const SETTING_OPTIONS: FilterOption[] = [
   { slug: 'daytime', label: 'Daytime' },
   { slug: 'peak-time', label: 'Peak Time' },
-  { slug: 'basement', label: 'Basement' },
+  { slug: 'late-night', label: 'Late Night' },
+  { slug: 'outdoor', label: 'Outdoor' },
   { slug: 'underground', label: 'Underground' },
-  { slug: 'queer', label: 'Queer' },
-  { slug: 'melodic', label: 'Melodic' },
-  { slug: 'experimental', label: 'Experimental' },
+  { slug: 'warehouse', label: 'Warehouse' },
+  { slug: 'basement', label: 'Basement' },
 ];
 
 // Preset options rendered in the filter sheet/sidebar "When" section.
@@ -256,7 +358,7 @@ export const DATE_OPTIONS: { slug: Exclude<DateFilter, 'custom'>; label: string 
   { slug: 'week', label: 'This week' },
 ];
 
-// ── Subgenres (Phase 5.4) ─────────────────────────────────────
+// ── Subgenres (Phase 3.18 update) ─────────────────────────────
 //
 // Curated map from parent-genre slug → recognizable subgenres. The
 // slugs here match the raw strings stored in `artists.subgenres[]`
@@ -265,20 +367,23 @@ export const DATE_OPTIONS: { slug: Exclude<DateFilter, 'custom'>; label: string 
 // separated (`dark techno`) — we match whatever the taxonomy ingest
 // actually wrote.
 //
-// Curation rationale — I picked entries that satisfy ALL of:
-//   (1) ≥10 artists carry that subgenre today (meaningful recall)
-//   (2) read as a coherent electronic-music subgenre (strips noise
-//       like `indie-rock`, `dance-pop`, `alternative rock` that
-//       leaked through MusicBrainz tags)
-//   (3) aren't the parent genre itself (no `techno` under techno)
+// Curation rationale:
+//   (1) ≥8 upcoming events show this subgenre in their lineup
+//       (meaningful recall — picking the filter actually returns
+//       a non-trivial result set)
+//   (2) reads as a coherent subgenre under the parent
+//   (3) isn't the parent itself
 //
-// Parents omitted from the map (jungle, dnb, downtempo) have no
-// subgenres today because the ingest data for those families is
-// sparse — a user selecting those sees the empty state "no
-// subgenres yet" in the picker instead of a broken chip row.
-//
-// If this list ever feels stale, regenerate by scanning
-// `select unnest(subgenres) from public.artists` and re-curating.
+// Phase 3.18 changes:
+//   - `breakbeat` parent renamed to `breaks` (matches data)
+//   - `deep-house` removed as parent (data only stored it as a
+//     subgenre under house)
+//   - new `industrial` subgenre under techno (was a parent, now
+//     correctly a subgenre per migration 0018)
+//   - new `hardcore-techno`, `hardgroove-techno` under techno
+//   - new `psychedelic-rock` under rock
+//   - new parents now seeded with their high-density subgenres:
+//     experimental, hip-hop, latin, pop, indie, jazz, rock
 export const SUBGENRES_BY_PARENT: Record<string, FilterOption[]> = {
   techno: [
     { slug: 'hard-techno', label: 'Hard' },
@@ -289,9 +394,12 @@ export const SUBGENRES_BY_PARENT: Record<string, FilterOption[]> = {
     { slug: 'dub-techno', label: 'Dub' },
     { slug: 'acid techno', label: 'Acid' },
     { slug: 'hardgroove techno', label: 'Hardgroove' },
+    { slug: 'hardcore-techno', label: 'Hardcore' },
+    { slug: 'industrial', label: 'Industrial' },
     { slug: 'minimal', label: 'Minimal' },
   ],
   house: [
+    { slug: 'deep-house', label: 'Deep House' },
     { slug: 'tech-house', label: 'Tech House' },
     { slug: 'afro-house', label: 'Afro House' },
     { slug: 'melodic house', label: 'Melodic House' },
@@ -307,12 +415,14 @@ export const SUBGENRES_BY_PARENT: Record<string, FilterOption[]> = {
     { slug: 'ghetto house', label: 'Ghetto' },
     { slug: 'lo-fi house', label: 'Lo-Fi' },
   ],
-  'deep-house': [
-    // Deep house is already a canonical parent in GENRE_OPTIONS; this
-    // sub-list is intentionally narrow — if someone wants general
-    // house subgenres they should select the House parent.
-    { slug: 'soulful-house', label: 'Soulful' },
-    { slug: 'deep tech', label: 'Deep Tech' },
+  bass: [
+    { slug: 'uk bass', label: 'UK Bass' },
+    { slug: 'deep dubstep', label: 'Deep Dubstep' },
+  ],
+  breaks: [
+    { slug: 'breaks', label: 'Breaks' },
+    { slug: 'jersey-club', label: 'Jersey Club' },
+    { slug: 'footwork', label: 'Footwork' },
   ],
   disco: [
     { slug: 'nu disco', label: 'Nu Disco' },
@@ -325,22 +435,56 @@ export const SUBGENRES_BY_PARENT: Record<string, FilterOption[]> = {
     { slug: 'two-step-garage', label: 'Two-Step' },
     { slug: 'uk bass', label: 'UK Bass' },
   ],
-  dubstep: [
-    { slug: 'uk bass', label: 'UK Bass' },
-    { slug: 'bass', label: 'Bass' },
-  ],
   ambient: [
     { slug: 'ambient electronic', label: 'Electronic' },
     { slug: 'dark-ambient', label: 'Dark' },
     { slug: 'drone ambient', label: 'Drone' },
+    { slug: 'ambient house', label: 'Ambient House' },
   ],
-  breakbeat: [
-    { slug: 'breaks', label: 'Breaks' },
-    { slug: 'jersey-club', label: 'Jersey Club' },
-    { slug: 'footwork', label: 'Footwork' },
+  experimental: [
+    { slug: 'experimental electronic', label: 'Electronic' },
+    { slug: 'experimental club', label: 'Club' },
+    { slug: 'experimental techno', label: 'Techno' },
+    { slug: 'deconstructed club', label: 'Deconstructed' },
+    { slug: 'experimental pop', label: 'Pop' },
+    { slug: 'noise', label: 'Noise' },
+  ],
+  pop: [
+    { slug: 'experimental pop', label: 'Experimental' },
+    { slug: 'synth-pop', label: 'Synth-Pop' },
+    { slug: 'indie-pop', label: 'Indie' },
+    { slug: 'dream pop', label: 'Dream' },
+    { slug: 'hyperpop', label: 'Hyperpop' },
+    { slug: 'dance-pop', label: 'Dance' },
+  ],
+  indie: [
+    { slug: 'indie electronic', label: 'Electronic' },
+    { slug: 'indie-pop', label: 'Pop' },
+    { slug: 'indie-rock', label: 'Rock' },
+  ],
+  rock: [
+    { slug: 'indie-rock', label: 'Indie' },
+    { slug: 'alternative rock', label: 'Alternative' },
+    { slug: 'experimental rock', label: 'Experimental' },
+    { slug: 'psychedelic-rock', label: 'Psychedelic' },
+    { slug: 'dance-punk', label: 'Dance-Punk' },
+  ],
+  latin: [
+    { slug: 'latin pop', label: 'Pop' },
+    { slug: 'latin house', label: 'House' },
+    { slug: 'alternative reggaeton', label: 'Alt-Reggaeton' },
+    { slug: 'reggaeton', label: 'Reggaeton' },
+    { slug: 'baile-funk', label: 'Baile Funk' },
+  ],
+  'hip-hop': [
+    { slug: 'east coast hip hop', label: 'East Coast' },
+  ],
+  jazz: [
+    { slug: 'nu jazz', label: 'Nu Jazz' },
   ],
   // Families without curated subgenres yet (sparse ingest data):
-  // dnb, jungle, downtempo.
+  //   dnb, electronic, funk, soul, r&b, world, reggae, classical, trance.
+  // Picker shows "no subgenres yet" / hides the row in those cases.
 };
 
 /** Subgenre options available for a single parent. Empty array if
@@ -361,12 +505,110 @@ export const ALL_SUBGENRE_SLUGS: string[] = Array.from(
   new Set(Object.values(SUBGENRES_BY_PARENT).flatMap((opts) => opts.map((o) => o.slug))),
 );
 
+// ── Preference-aware genre ordering ────────────────────────────
+//
+// Phase 3.18 — the home feed sorts the genre row so that genres a
+// user explicitly picked at onboarding bubble to the top of the
+// always-visible default-14 slot. Default order fills the rest.
+// Anything that doesn't fit goes into "More genres."
+//
+// Onboarding itself does NOT call this — there's no preference signal
+// yet at that stage. It uses the raw `GENRE_OPTIONS` order.
+
+export type SortedGenreOptions = {
+  /** Genres shown in the always-visible row (length === DEFAULT_VISIBLE_GENRES_COUNT). */
+  visible: FilterOption[];
+  /** Genres revealed by the "More genres" expand toggle. */
+  more: FilterOption[];
+};
+
+/**
+ * Sort the GENRE_OPTIONS list by the user's onboarding-time
+ * preferences:
+ *
+ *   1. User-preferred genres (in the order they appear in `prefs`)
+ *      go first, capped at DEFAULT_VISIBLE_GENRES_COUNT.
+ *   2. Remaining visible slots fill from the default GENRE_OPTIONS
+ *      order, skipping anything already promoted.
+ *   3. Anything left over goes into `more`.
+ *
+ * Stable across renders — same input always produces the same order.
+ *
+ * Pass an empty `prefs` array (or call without it) to get the default
+ * order back.
+ */
+export function sortGenresByPrefs(
+  prefs: string[] = [],
+  options: FilterOption[] = GENRE_OPTIONS,
+): SortedGenreOptions {
+  const VISIBLE = DEFAULT_VISIBLE_GENRES_COUNT;
+  const bySlug = new Map(options.map((o) => [o.slug, o]));
+  const seen = new Set<string>();
+  const visible: FilterOption[] = [];
+
+  // (1) Promote prefs first, in pref order.
+  for (const slug of prefs) {
+    if (visible.length >= VISIBLE) break;
+    const opt = bySlug.get(slug);
+    if (opt && !seen.has(slug)) {
+      visible.push(opt);
+      seen.add(slug);
+    }
+  }
+  // (2) Fill remaining slots from default order.
+  for (const opt of options) {
+    if (visible.length >= VISIBLE) break;
+    if (!seen.has(opt.slug)) {
+      visible.push(opt);
+      seen.add(opt.slug);
+    }
+  }
+  // (3) The rest → "More genres."
+  const more = options.filter((o) => !seen.has(o.slug));
+
+  return { visible, more };
+}
+
+/**
+ * Lighter-weight pref-aware sort for vibes (no hidden "more" row —
+ * all 12 vibes are always visible, but user-preferred ones bubble to
+ * the front).
+ */
+export function sortVibesByPrefs(
+  prefs: string[] = [],
+  options: FilterOption[] = VIBE_OPTIONS,
+): FilterOption[] {
+  const bySlug = new Map(options.map((o) => [o.slug, o]));
+  const seen = new Set<string>();
+  const sorted: FilterOption[] = [];
+  for (const slug of prefs) {
+    const opt = bySlug.get(slug);
+    if (opt && !seen.has(slug)) {
+      sorted.push(opt);
+      seen.add(slug);
+    }
+  }
+  for (const opt of options) {
+    if (!seen.has(opt.slug)) {
+      sorted.push(opt);
+      seen.add(opt.slug);
+    }
+  }
+  return sorted;
+}
+
+// ── Label helpers ──────────────────────────────────────────────
+
 export function labelForGenre(slug: string): string {
   return GENRE_OPTIONS.find((o) => o.slug === slug)?.label ?? slug;
 }
 
 export function labelForVibe(slug: string): string {
   return VIBE_OPTIONS.find((o) => o.slug === slug)?.label ?? slug;
+}
+
+export function labelForSetting(slug: string): string {
+  return SETTING_OPTIONS.find((o) => o.slug === slug)?.label ?? slug;
 }
 
 export function labelForWhen(slug: DateFilter): string {

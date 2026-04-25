@@ -55,6 +55,11 @@ export type FeedEvent = {
   image_url: string | null;
   genres: string[];
   vibes: string[];
+  /** Phase 3.18 — derived event-context tags (warehouse, basement,
+   *  daytime, peak-time, late-night, outdoor, underground). Distinct
+   *  from `vibes` (artist-mood). Backed by events.setting (migration
+   *  0017), populated by the SQL derivation in migration 0018. */
+  setting: string[];
   price_min: number | null;
   price_max: number | null;
   ticket_url: string | null;
@@ -86,6 +91,8 @@ export type DetailEvent = {
   description: string | null;
   genres: string[];
   vibes: string[];
+  /** Phase 3.18 — see FeedEvent.setting. */
+  setting: string[];
   price_min: number | null;
   price_max: number | null;
   ticket_url: string | null;
@@ -116,6 +123,7 @@ type EventRow = {
   image_url: string | null;
   genres: string[] | null;
   vibes: string[] | null;
+  setting: string[] | null;
   price_min: number | null;
   price_max: number | null;
   ticket_url: string | null;
@@ -192,6 +200,7 @@ export async function getUpcomingEvents({
       image_url,
       genres,
       vibes,
+      setting,
       price_min,
       price_max,
       ticket_url,
@@ -241,14 +250,18 @@ export async function getUpcomingEvents({
     );
   }
 
-  // Multi-select genres / vibes → OR semantics ("techno OR house"),
-  // which maps cleanly to PostgreSQL's `&&` array-overlap operator
-  // and our GIN indexes.
+  // Multi-select genres / vibes / setting → OR semantics ("techno OR
+  // house"), which maps cleanly to PostgreSQL's `&&` array-overlap
+  // operator and our GIN indexes (events_genres_gin, events_vibes_gin,
+  // events_setting_gin from migration 0017).
   if (filters.genres.length) {
     query = query.overlaps('genres', filters.genres);
   }
   if (filters.vibes.length) {
     query = query.overlaps('vibes', filters.vibes);
+  }
+  if (filters.setting.length) {
+    query = query.overlaps('setting', filters.setting);
   }
 
   // Subgenre filter. Events don't carry subgenres directly — they
@@ -333,6 +346,7 @@ export async function getUpcomingEvents({
     image_url: row.image_url,
     genres: row.genres ?? [],
     vibes: row.vibes ?? [],
+    setting: row.setting ?? [],
     price_min: row.price_min,
     price_max: row.price_max,
     ticket_url: row.ticket_url,
@@ -376,6 +390,7 @@ type EventDetailDbRow = {
   description: string | null;
   genres: string[] | null;
   vibes: string[] | null;
+  setting: string[] | null;
   price_min: number | null;
   price_max: number | null;
   ticket_url: string | null;
@@ -433,6 +448,7 @@ export async function getEventById(id: string): Promise<DetailEvent | null> {
       description,
       genres,
       vibes,
+      setting,
       price_min,
       price_max,
       ticket_url,
@@ -482,6 +498,7 @@ export async function getEventById(id: string): Promise<DetailEvent | null> {
     description: row.description,
     genres: row.genres ?? [],
     vibes: row.vibes ?? [],
+    setting: row.setting ?? [],
     price_min: row.price_min,
     price_max: row.price_max,
     ticket_url: row.ticket_url,
