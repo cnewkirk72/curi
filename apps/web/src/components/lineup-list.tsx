@@ -77,9 +77,9 @@ function EmbedPanel({ url }: { url: string }) {
 // ── main component ───────────────────────────────────────────────────
 
 export function LineupList({ lineup }: { lineup: LineupArtist[] }) {
-  if (lineup.length === 0) return null;
-
   const [activeArtist, setActiveArtist] = useState<string | null>(null);
+
+  if (lineup.length === 0) return null;
 
   function toggleArtist(name: string) {
     setActiveArtist((prev) => (prev === name ? null : name));
