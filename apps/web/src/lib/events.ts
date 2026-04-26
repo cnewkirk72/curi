@@ -140,6 +140,8 @@ type EventRow = {
         artist: {
           name: string;
           spotify_image_url: string | null;
+          soundcloud_image_url: string | null;
+          bandcamp_image_url: string | null;
           spotify_url: string | null;
           spotify_popularity: number | null;
           soundcloud_url: string | null;
@@ -216,6 +218,8 @@ export async function getUpcomingEvents({
         artist:artists (
           name,
           spotify_image_url,
+          soundcloud_image_url,
+          bandcamp_image_url,
           spotify_url,
           spotify_popularity,
           soundcloud_url,
@@ -368,7 +372,17 @@ export async function getUpcomingEvents({
         name: ea.artist?.name ?? '',
         position: ea.position,
         is_headliner: ea.is_headliner,
-        image_url: ea.artist?.spotify_image_url ?? null,
+        // Avatar fallback chain: Spotify (62% coverage as of Apr 2026)
+        // → SoundCloud og:image → Bandcamp og:image → null (caller
+        // renders initials placeholder). Order matches popularity tier
+        // for the catalog: Spotify is the most authoritative source for
+        // artists who do match, then SC for the EDM-heavy long tail,
+        // then BC for the indie/experimental remainder.
+        image_url:
+          ea.artist?.spotify_image_url ??
+          ea.artist?.soundcloud_image_url ??
+          ea.artist?.bandcamp_image_url ??
+          null,
         spotify_url: ea.artist?.spotify_url ?? null,
         spotify_popularity: ea.artist?.spotify_popularity ?? null,
         soundcloud_url: ea.artist?.soundcloud_url ?? null,
@@ -417,6 +431,8 @@ type EventDetailDbRow = {
         artist: {
           name: string;
           spotify_image_url: string | null;
+          soundcloud_image_url: string | null;
+          bandcamp_image_url: string | null;
           spotify_url: string | null;
           spotify_popularity: number | null;
           soundcloud_url: string | null;
@@ -472,6 +488,8 @@ export async function getEventById(id: string): Promise<DetailEvent | null> {
         artist:artists (
           name,
           spotify_image_url,
+          soundcloud_image_url,
+          bandcamp_image_url,
           spotify_url,
           spotify_popularity,
           soundcloud_url,
@@ -523,7 +541,13 @@ export async function getEventById(id: string): Promise<DetailEvent | null> {
         name: ea.artist?.name ?? '',
         position: ea.position,
         is_headliner: ea.is_headliner,
-        image_url: ea.artist?.spotify_image_url ?? null,
+        // Same fallback chain as the feed projection — see comment in
+        // getUpcomingEvents above.
+        image_url:
+          ea.artist?.spotify_image_url ??
+          ea.artist?.soundcloud_image_url ??
+          ea.artist?.bandcamp_image_url ??
+          null,
         spotify_url: ea.artist?.spotify_url ?? null,
         spotify_popularity: ea.artist?.spotify_popularity ?? null,
         soundcloud_url: ea.artist?.soundcloud_url ?? null,

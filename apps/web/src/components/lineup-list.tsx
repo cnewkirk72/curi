@@ -79,11 +79,26 @@ function EmbedPanel({ url }: { url: string }) {
 
 export function LineupList({ lineup }: { lineup: LineupArtist[] }) {
   const [activeArtist, setActiveArtist] = useState<string | null>(null);
+  // Track artist names whose <img> failed to load. SC's i1.sndcdn.com
+  // and BC's f4.bcbits.com URLs are hot-linked (no Supabase Storage
+  // mirror) so a missing file → broken icon. Add to the set on error
+  // and re-render with the initials fallback. Per-artist set so one
+  // bad URL doesn't blank out the whole lineup.
+  const [brokenImages, setBrokenImages] = useState<Set<string>>(new Set());
 
   if (lineup.length === 0) return null;
 
   function toggleArtist(name: string) {
     setActiveArtist((prev) => (prev === name ? null : name));
+  }
+
+  function markBroken(name: string) {
+    setBrokenImages((prev) => {
+      if (prev.has(name)) return prev;
+      const next = new Set(prev);
+      next.add(name);
+      return next;
+    });
   }
 
   const headliners = lineup.filter((a) => a.is_headliner);
@@ -109,12 +124,13 @@ export function LineupList({ lineup }: { lineup: LineupArtist[] }) {
                       'ring-2 ring-accent/40 shadow-glow-sm',
                     )}
                   >
-                    {artist.image_url ? (
+                    {artist.image_url && !brokenImages.has(artist.name) ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img
                         src={artist.image_url}
                         alt=""
                         loading="lazy"
+                        onError={() => markBroken(artist.name)}
                         className="h-full w-full object-cover"
                       />
                     ) : (
@@ -154,12 +170,13 @@ export function LineupList({ lineup }: { lineup: LineupArtist[] }) {
                       AVATAR_BG[tone],
                     )}
                   >
-                    {artist.image_url ? (
+                    {artist.image_url && !brokenImages.has(artist.name) ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img
                         src={artist.image_url}
                         alt=""
                         loading="lazy"
+                        onError={() => markBroken(artist.name)}
                         className="h-full w-full object-cover"
                       />
                     ) : (
