@@ -12,6 +12,7 @@
     "dry-run": "tsx src/llm-enrichment-dry-run.ts",
     "backfill": "tsx src/backfill-run.ts",
     "backfill-avatars": "tsx src/backfill-avatars.ts",
+    "repair-sc-images": "tsx src/repair-sc-images.ts",
     "spotify-retry": "tsx src/spotify-retry.ts",
     "spotify-catchup": "tsx src/spotify-catchup.ts",
     "audit": "tsx src/audit.ts",
