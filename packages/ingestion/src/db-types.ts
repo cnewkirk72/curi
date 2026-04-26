@@ -24,6 +24,7 @@ export type Database = {
       artists: {
         Row: {
           bandcamp_followers: number | null;
+          bandcamp_image_url: string | null;
           bandcamp_url: string | null;
           enrichment_confidence: string | null;
           genres: string[];
@@ -36,6 +37,7 @@ export type Database = {
           popularity_discovery_failed_at: string | null;
           slug: string;
           soundcloud_followers: number | null;
+          soundcloud_image_url: string | null;
           soundcloud_url: string | null;
           spotify_checked_at: string | null;
           spotify_discovery_failed_at: string | null;
@@ -49,6 +51,7 @@ export type Database = {
         };
         Insert: {
           bandcamp_followers?: number | null;
+          bandcamp_image_url?: string | null;
           bandcamp_url?: string | null;
           enrichment_confidence?: string | null;
           genres?: string[];
@@ -61,6 +64,7 @@ export type Database = {
           popularity_discovery_failed_at?: string | null;
           slug: string;
           soundcloud_followers?: number | null;
+          soundcloud_image_url?: string | null;
           soundcloud_url?: string | null;
           spotify_checked_at?: string | null;
           spotify_discovery_failed_at?: string | null;
@@ -74,6 +78,7 @@ export type Database = {
         };
         Update: {
           bandcamp_followers?: number | null;
+          bandcamp_image_url?: string | null;
           bandcamp_url?: string | null;
           enrichment_confidence?: string | null;
           genres?: string[];
@@ -86,6 +91,7 @@ export type Database = {
           popularity_discovery_failed_at?: string | null;
           slug?: string;
           soundcloud_followers?: number | null;
+          soundcloud_image_url?: string | null;
           soundcloud_url?: string | null;
           spotify_checked_at?: string | null;
           spotify_discovery_failed_at?: string | null;

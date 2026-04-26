@@ -50,7 +50,7 @@ import { findNearMatch, normalizeForTaxonomy } from './taxonomy-fuzzy.js';
 import { normalizeGenres } from './genre-normalizer.js';
 import type { PopularityResult } from './popularity-discovery.js';
 
-// ── Public types ─────────────────────────────────────────
+// ── Public types ─────────────────────────────────────────────
 
 export interface EnrichmentContext {
   /** Venue default_genres/default_vibes if available. */
@@ -104,7 +104,7 @@ export interface EnrichmentResult {
   popularity: PopularityResult | null;
 }
 
-// ── Vocabulary loader ──────────────────────────────────────
+// ── Vocabulary loader ───────────────────────────────────────
 
 interface Vocabulary {
   parentGenres: string[]; // flattened taxonomy_map.genres, deduped
@@ -163,7 +163,7 @@ export function _resetVocabularyCache(): void {
   vocabCache = null;
 }
 
-// ── Prompt builders ──────────────────────────────────────────
+// ── Prompt builders ──────────────────────────────────────
 
 function buildSystemPrompt(vocab: Vocabulary): string {
   return [
@@ -388,7 +388,7 @@ const TOOLS: ToolDefinition[] = [
   },
 ];
 
-// ── Orchestrator ─────────────────────────────────────────────────
+// ── Orchestrator ───────────────────────────────────────────────
 
 interface SubmittedEnrichment {
   genres: unknown;
@@ -421,7 +421,12 @@ export async function enrichArtistWithLLM(
   const toolTrace: string[] = [];
   let popularity: PopularityResult | null = null;
 
-  const recordPopularity = (url: string, followers: number | null, canonical: string | null): void => {
+  const recordPopularity = (
+    url: string,
+    followers: number | null,
+    canonical: string | null,
+    imageUrl: string | null,
+  ): void => {
     const resolvedUrl = canonical ?? url;
     if (!popularity) {
       popularity = { attempted: true, sources: [] };
@@ -432,10 +437,16 @@ export async function enrichArtistWithLLM(
       if (followers !== null && followers !== undefined) {
         popularity.soundcloudFollowers = followers;
       }
+      if (imageUrl) {
+        popularity.soundcloudImageUrl = imageUrl;
+      }
     } else if (/bandcamp\.com/i.test(resolvedUrl)) {
       popularity.bandcampUrl = resolvedUrl;
       if (followers !== null && followers !== undefined) {
         popularity.bandcampFollowers = followers;
+      }
+      if (imageUrl) {
+        popularity.bandcampImageUrl = imageUrl;
       }
     }
   };
@@ -477,8 +488,10 @@ export async function enrichArtistWithLLM(
           typeof call.input.limit === 'number' ? call.input.limit : 10;
         const result = await fetchArtistSelfTags(profileUrl, limit);
         // Capture popularity as a side effect — tier-3 artists get
-        // their SC/BC URL + follower count "for free" from this call.
-        recordPopularity(profileUrl, result.followers, result.canonicalUrl);
+        // their SC/BC URL + follower count + profile avatar "for free"
+        // from this call. The avatar URL backfills artists.{soundcloud,
+        // bandcamp}_image_url when spotify_image_url is missing.
+        recordPopularity(profileUrl, result.followers, result.canonicalUrl, result.imageUrl);
         return [
           `profile_genre: ${result.profileGenre ?? '(none)'}`,
           `bio: ${result.bio ?? '(none)'}`,
@@ -566,7 +579,7 @@ export async function enrichArtistWithLLM(
   };
 }
 
-// ── Post-processing helpers ───────────────────────────────────────────────
+// ── Post-processing helpers ────────────────────────────────────────────────
 
 function dedupeClean(arr: unknown): string[] {
   if (!Array.isArray(arr)) return [];

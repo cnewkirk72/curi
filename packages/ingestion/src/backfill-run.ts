@@ -403,6 +403,9 @@ async function commitArtist(
     ) {
       updatePayload.soundcloud_followers = popularity.soundcloudFollowers;
     }
+    if (popularity.soundcloudImageUrl) {
+      updatePayload.soundcloud_image_url = popularity.soundcloudImageUrl;
+    }
     if (popularity.bandcampUrl) {
       updatePayload.bandcamp_url = popularity.bandcampUrl;
     }
@@ -411,6 +414,9 @@ async function commitArtist(
       Number.isFinite(popularity.bandcampFollowers)
     ) {
       updatePayload.bandcamp_followers = popularity.bandcampFollowers;
+    }
+    if (popularity.bandcampImageUrl) {
+      updatePayload.bandcamp_image_url = popularity.bandcampImageUrl;
     }
 
     const foundAny = !!(popularity.soundcloudUrl || popularity.bandcampUrl);
@@ -579,9 +585,17 @@ async function processArtist(
             attempted: true,
             soundcloudUrl: discovered.soundcloudUrl ?? null,
             soundcloudFollowers: discovered.soundcloudFollowers ?? null,
+            // SC URL was suspicious → its image is also suspicious. Only
+            // accept the discovered avatar (which corresponds to the
+            // verified URL); drop the LLM's silently.
+            soundcloudImageUrl: discovered.soundcloudImageUrl ?? null,
             bandcampUrl: discovered.bandcampUrl ?? llmPop.bandcampUrl ?? null,
             bandcampFollowers:
               discovered.bandcampFollowers ?? llmPop.bandcampFollowers ?? null,
+            // Bandcamp wasn't the suspicious side — fall back to the
+            // LLM's BC image if discovery didn't touch BC.
+            bandcampImageUrl:
+              discovered.bandcampImageUrl ?? llmPop.bandcampImageUrl ?? null,
             sources: [...llmPop.sources, ...discovered.sources],
           };
         } else {
@@ -728,10 +742,10 @@ async function main(): Promise<void> {
   );
   await Promise.all(workers);
 
-  // ── Summary ─────────────────────────────────────────────────────────
-  console.log('\n═══════════════════════════════════════════════════════');
+  // ── Summary ────────────────────────────────────────────────────────────
+  console.log('\n══════════════════════════════════════════════════════');
   console.log('Backfill summary');
-  console.log('═══════════════════════════════════════════════════════');
+  console.log('══════════════════════════════════════════════════════');
   const okCount = log.filter((r) => !r.error && !r.stalled).length;
   const stalledCount = log.filter((r) => r.stalled).length;
   const errCount = log.filter((r) => !!r.error).length;
