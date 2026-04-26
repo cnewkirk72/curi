@@ -11,11 +11,25 @@
 // We prefer this over rolling our own HTML parse because SoundCloud's
 // markup shifts and parsing it ourselves (Playwright + selectors) is
 // the kind of brittle work Firecrawl was built to absorb.
+//
+// Exception: the og:image meta tag. Phase 4f.1 originally asked the
+// Firecrawl LLM to read og:image alongside the rest, and that pass
+// returned a uniform deprecated `avatars-000NNNNNNN-...` numeric URL
+// format that 404s across i1.sndcdn.com today (the LLM either
+// hallucinated or pulled stale snapshot data). The og:image is in the
+// static profile-page HTML — no JS render needed, no auth — so we now
+// fetch the page directly and regex the meta tag ourselves. Costs
+// ~0 (one outbound GET) and is far more reliable than the LLM.
 
 import { env } from './env.js';
 
 const FIRECRAWL_BASE = 'https://api.firecrawl.dev/v1';
 const DEFAULT_TIMEOUT_MS = 30_000;
+const OG_IMAGE_TIMEOUT_MS = 10_000;
+const OG_IMAGE_USER_AGENT =
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 ' +
+  '(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+const CDN_ALLOW_RE = /^https:\/\/(i\d*\.sndcdn\.com|f\d+\.bcbits\.com)\//i;
 
 async function firecrawlFetch<T>(path: string, body: unknown): Promise<T> {
   const key = env.firecrawlApiKey;
@@ -66,7 +80,7 @@ async function firecrawlFetch<T>(path: string, body: unknown): Promise<T> {
   throw new Error(`firecrawl exhausted retries on ${path}: ${lastErr}`);
 }
 
-// ── public API ───────────────────────────────────────────
+// ── public API ──────────────────────────────────────────────
 
 export interface SelfTagsResult {
   /** Genre-style hashtags aggregated across recent tracks, ranked by frequency. */
@@ -88,8 +102,11 @@ export interface SelfTagsResult {
    *  SoundCloud serves these from i1.sndcdn.com, Bandcamp from
    *  f4.bcbits.com. Used as a fallback for `artists.spotify_image_url`
    *  in the lineup avatar projection. Null when the page didn't
-   *  expose an og:image (rare — both platforms set it on every
-   *  profile we've seen). */
+   *  expose an og:image, the URL points outside the allow-listed
+   *  CDNs, or our direct scrape failed (network/timeout). Sourced via
+   *  scrapeOgImage() rather than Firecrawl's LLM extract — the LLM
+   *  returned hallucinated/stale URLs in the deprecated numeric SC
+   *  format. See header comment for context. */
   imageUrl: string | null;
   /** Resolved source URL Firecrawl actually scraped. */
   sourceUrl: string;
@@ -105,7 +122,6 @@ interface FirecrawlScrapeResponse {
       profileGenre?: string | null;
       followers?: number | null;
       canonicalUrl?: string | null;
-      imageUrl?: string | null;
     };
     metadata?: {
       sourceURL?: string;
@@ -113,6 +129,46 @@ interface FirecrawlScrapeResponse {
     };
   };
   error?: string;
+}
+
+/**
+ * Direct og:image scrape against a SoundCloud or Bandcamp profile.
+ * Returns null on any failure mode (network error, non-2xx response,
+ * missing meta tag, URL outside the allow-listed CDNs, or unreasonable
+ * length). Both platforms include og:image in their static initial
+ * HTML, so a single GET is sufficient — no JS render, no auth, no
+ * rate-limit observed at the concurrency we use.
+ */
+async function scrapeOgImage(profileUrl: string): Promise<string | null> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), OG_IMAGE_TIMEOUT_MS);
+  try {
+    const res = await fetch(profileUrl, {
+      headers: {
+        'User-Agent': OG_IMAGE_USER_AGENT,
+        Accept: 'text/html,application/xhtml+xml',
+      },
+      redirect: 'follow',
+      signal: controller.signal,
+    });
+    if (!res.ok) return null;
+    const html = await res.text();
+    // Match either attribute order; quote-style flexible. SC and BC
+    // both use double-quoted property=og:image content="..." today,
+    // but staying tolerant costs nothing.
+    const m =
+      html.match(/<meta[^>]+property=["']og:image["'][^>]*content=["']([^"']+)["']/i) ??
+      html.match(/<meta[^>]+content=["']([^"']+)["'][^>]*property=["']og:image["']/i);
+    if (!m || !m[1]) return null;
+    const candidate = m[1].trim();
+    if (candidate.length === 0 || candidate.length > 500) return null;
+    if (!CDN_ALLOW_RE.test(candidate)) return null;
+    return candidate;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 /**
@@ -145,12 +201,7 @@ export async function fetchArtistSelfTags(
         `abbreviated numbers into raw integers: "12.5K" → 12500, ` +
         `"1,234" → 1234, "3.1M" → 3100000. Return null if not visible.\n` +
         `(5) the canonical profile URL as displayed on the page (check ` +
-        `<link rel="canonical"> or og:url meta tag).\n` +
-        `(6) the artist's profile avatar image URL from the ` +
-        `<meta property="og:image"> tag (SoundCloud serves these ` +
-        `from i1.sndcdn.com, Bandcamp from f4.bcbits.com). Return ` +
-        `the full URL exactly as it appears in the meta tag. Return ` +
-        `null if no og:image is present.`,
+        `<link rel="canonical"> or og:url meta tag).`,
       schema: {
         type: 'object',
         properties: {
@@ -178,11 +229,6 @@ export async function fetchArtistSelfTags(
             description:
               'Canonical profile URL from the page, or empty string if none',
           },
-          imageUrl: {
-            type: 'string',
-            description:
-              'Profile avatar image URL from <meta property="og:image">, or empty string if none',
-          },
         },
         required: ['tags'],
       },
@@ -191,10 +237,13 @@ export async function fetchArtistSelfTags(
     waitFor: 1500,
   };
 
-  const response = await firecrawlFetch<FirecrawlScrapeResponse>(
-    '/scrape',
-    body,
-  );
+  // Run the Firecrawl extract and the og:image scrape in parallel —
+  // they hit different hosts, share no state, and we always need both.
+  // Serializing them would add ~200–800ms of latency for no gain.
+  const [response, scrapedImageUrl] = await Promise.all([
+    firecrawlFetch<FirecrawlScrapeResponse>('/scrape', body),
+    scrapeOgImage(profileUrl),
+  ]);
 
   if (!response.success || !response.data) {
     throw new Error(
@@ -232,20 +281,10 @@ export async function fetchArtistSelfTags(
       ? extracted.canonicalUrl
       : null;
 
-  // Image URL: only accept https URLs from the expected CDNs. Defends
-  // against the LLM hallucinating a placeholder or echoing the page URL
-  // instead of the og:image. Length cap is a sanity check — real CDN
-  // URLs are well under 500 chars.
-  let imageUrl: string | null = null;
-  const rawImageUrl = extracted.imageUrl;
-  if (typeof rawImageUrl === 'string' && rawImageUrl.length > 0 && rawImageUrl.length <= 500) {
-    const trimmed = rawImageUrl.trim();
-    if (
-      /^https:\/\/(i\d+\.sndcdn\.com|f\d+\.bcbits\.com)\//i.test(trimmed)
-    ) {
-      imageUrl = trimmed;
-    }
-  }
+  // imageUrl comes from scrapeOgImage above — already validated against
+  // the CDN allow-list and length cap inside that helper. Null when the
+  // direct scrape couldn't find or verify an og:image, in which case
+  // the avatar projection cascades to the next platform (or initials).
 
   return {
     tags,
@@ -256,7 +295,7 @@ export async function fetchArtistSelfTags(
         : null,
     followers,
     canonicalUrl,
-    imageUrl,
+    imageUrl: scrapedImageUrl,
     sourceUrl:
       response.data.metadata?.sourceURL ??
       response.data.metadata?.url ??
