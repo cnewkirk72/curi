@@ -115,7 +115,7 @@ export default async function HomePage({
           // Desktop: widen to a 2-col grid container with sidebar on
           // the left and feed on the right. `pt-8` is tighter than
           // mobile since the DesktopTopNav already provides padding.
-          'lg:grid lg:max-w-7xl lg:grid-cols-[260px_1fr] lg:gap-10 lg:px-8 lg:pb-16 lg:pt-10',
+          'lg:grid lg:max-w-7xl lg:grid-cols-[260px_1fr] lg:gap-10 lg:px-8 lg:pb-16 lg:pt-[86px]',
         )}
       >
         {/* Ambient blobs — only rendered on mobile. At desktop the
