@@ -2,23 +2,27 @@
 
 // Onboarding step 2 — sign-in gate with a skip-for-now escape.
 //
-// We mirror the /login page's Google button (same form action, same
-// visual pill) so returning users who already have an account don't
-// feel like onboarding is a separate product. The difference vs
-// /login is the "Skip for now" ghost button — onboarding is not
-// auth-gated, and we want people who aren't ready to commit to a
-// Google sign-in to still be able to get a personalized feed for
-// this session.
+// We mirror the /login page's Google button (same hook, same visual
+// pill) so returning users who already have an account don't feel
+// like onboarding is a separate product. The difference vs /login is
+// the "Skip for now" ghost button — onboarding is not auth-gated, and
+// we want people who aren't ready to commit to a Google sign-in to
+// still be able to get a personalized feed for this session.
 //
-// When Skip is tapped the orchestrator advances to `genres` with
-// the user still anonymous. Their taste writes will be no-ops (the
-// server actions return `unauth` and we toast quietly on the client)
-// — but the local draft keeps everything so when they eventually
-// sign in we can upsert the accumulated preferences in one shot.
+// When Skip is tapped the orchestrator advances to `genres` with the
+// user still anonymous. Their taste writes will be no-ops (the server
+// actions return `unauth` and we toast quietly on the client) — but
+// the local draft keeps everything so when they eventually sign in we
+// can upsert the accumulated preferences in one shot.
+//
+// Sign-in itself is platform-aware: web does the OAuth redirect via
+// the existing server action; iOS/Capacitor does native Google Sign-In
+// → Supabase ID-token exchange (web embedded WebViews are blocked by
+// Google's "disallowed_useragent" policy). The branching lives in
+// useGoogleSignIn — see lib/auth/use-google-sign-in.ts.
 
-import { useFormStatus } from 'react-dom';
 import { cn } from '@/lib/utils';
-import { signInWithGoogle } from '@/lib/supabase/actions';
+import { useGoogleSignIn } from '@/lib/auth/use-google-sign-in';
 
 type Props = {
   /** Called when the user chooses to skip sign-in. */
@@ -26,6 +30,13 @@ type Props = {
 };
 
 export function SigninStep({ onSkip }: Props) {
+  // After native sign-in we want to land back on /onboarding so the
+  // orchestrator picks up at the genres step (the next one in flow).
+  // Web sign-in goes through /auth/callback which has its own routing.
+  const { signIn, pending, error } = useGoogleSignIn({
+    redirectTo: '/onboarding',
+  });
+
   return (
     <div className="flex flex-col gap-6 px-5 pt-4 animate-enter-up">
       <div className="space-y-3">
@@ -44,13 +55,29 @@ export function SigninStep({ onSkip }: Props) {
       </div>
 
       <div className="space-y-3">
-        {/* Same pattern as /login: bare form with a server action. The
-            action redirects to Google, so we never get a resolve back
-            in the browser — `useFormStatus` just drives a brief pending
-            label while the outbound redirect is in flight. */}
-        <form action={signInWithGoogle}>
-          <GoogleSubmit />
-        </form>
+        <button
+          type="button"
+          onClick={signIn}
+          disabled={pending}
+          className={cn(
+            'inline-flex w-full items-center justify-center gap-3 rounded-pill bg-accent px-6 py-3.5',
+            'font-display text-sm font-semibold text-bg-deep shadow-glow',
+            'transition duration-micro ease-expo hover:bg-accent-hover active:scale-[0.97]',
+            'disabled:pointer-events-none disabled:opacity-60',
+          )}
+        >
+          <GoogleMark />
+          {pending ? 'Opening Google…' : 'Continue with Google'}
+        </button>
+
+        {error && (
+          <p
+            role="alert"
+            className="rounded-xl border border-amber/30 bg-amber-chip px-4 py-3 text-xs text-amber"
+          >
+            {error}
+          </p>
+        )}
 
         <button
           type="button"
@@ -65,27 +92,6 @@ export function SigninStep({ onSkip }: Props) {
         </p>
       </div>
     </div>
-  );
-}
-
-// Submit button split out so `useFormStatus` can read the parent
-// <form>'s pending state. Must be rendered inside the form.
-function GoogleSubmit() {
-  const { pending } = useFormStatus();
-  return (
-    <button
-      type="submit"
-      disabled={pending}
-      className={cn(
-        'inline-flex w-full items-center justify-center gap-3 rounded-pill bg-accent px-6 py-3.5',
-        'font-display text-sm font-semibold text-bg-deep shadow-glow',
-        'transition duration-micro ease-expo hover:bg-accent-hover active:scale-[0.97]',
-        'disabled:pointer-events-none disabled:opacity-60',
-      )}
-    >
-      <GoogleMark />
-      {pending ? 'Opening Google…' : 'Continue with Google'}
-    </button>
   );
 }
 

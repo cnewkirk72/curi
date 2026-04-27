@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next';
 import { Inter, Space_Grotesk } from 'next/font/google';
 import { RegisterSW } from '@/components/register-sw';
+import { InitSocialLogin } from '@/components/init-social-login';
 import './globals.css';
 
 // next/font self-hosts the Google Fonts at build time, so there's no
@@ -78,6 +79,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             development — Next dev + service workers fight each other
             over caching, so we gate on NODE_ENV. */}
         <RegisterSW />
+        {/* Initializes the native Google Sign-In SDK on iOS so the
+            sign-in buttons can issue ID tokens directly (web-only
+            OAuth via WebView is blocked by Google as of 2021). Noop
+            in the browser. */}
+        <InitSocialLogin />
       </body>
     </html>
   );
