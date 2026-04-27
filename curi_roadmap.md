@@ -3,11 +3,14 @@
 Forward plan, phased by lift (lowest → highest). Items sourced from
 Christian's consolidated idea list + notes flagged during Phase 4.
 
-**Currently shipped:** Phases 1–4 in full; Phase 5 partial (5.1 / 5.2 /
-5.4 + onboarding redirect gate); Phase 6 partial (6.1 desktop responsive
-+ 6.2 date selector); Phase 3 polish 3.15–3.18 (NYC-wide expansion,
-pre-insert dedup, hero fallback chain, filter vocabulary rebuild). See
-`CURI_CONTEXT.md` for status detail.
+**Currently shipped:** Phases 1–4 in full; Phase 4f.1 + 4f.1.1
+(SC/BC avatar fallback + og:image LLM-hallucination repair); Phase 5
+partial (5.1 / 5.2 / 5.4 + onboarding redirect gate); Phase 6 partial
+(6.1 desktop responsive + 6.2 date selector + 6.3 basic title-only
+search by Ahmed); Phase 7 partial (7.1 basic iframe player by Ahmed);
+Phase 3 polish 3.15–3.18 (NYC-wide expansion, pre-insert dedup, hero
+fallback chain, filter vocabulary rebuild). See `CURI_CONTEXT.md` for
+status detail.
 
 ---
 
@@ -103,13 +106,24 @@ a date sets `when='custom'` with `date_from = picked day` and
 through the `?when=custom&from=YYYY-MM-DD` URL param. Date math
 handles NYC DST via `Intl.DateTimeFormat` shortOffset sampling.
 
-### 6.3 Dynamic live search (typeahead) — **next priority**
+### 6.3 Dynamic live search (typeahead) — **partial ship**
 
-Results narrow automatically as the user types, across event title,
-artist name, venue. Debounce ~150ms. Reuse the existing PostgREST
-select shape, add server-side `ilike` filter via a search param.
-Highest-impact remaining feature in Phase 6 — users currently can't
-search at all, only filter.
+Ahmed shipped a basic version (commit `87ced38`): debounced 350ms
+input → `?q=` URL param → server-side `ilike` on `events.title` only.
+The Ahmed version is live and useful, but the original 6.3 spec
+called for cross-entity search.
+
+**Open work in 6.3:**
+- Extend the `getUpcomingEvents` query (or a sibling RPC) to also
+  search `artists.name` (via the lineup join) and `venues.name`.
+- Build a `<SearchSuggestions>` popover component that renders
+  grouped result rows (Events / Artists / Venues) under the input.
+  Tapping an artist or venue suggestion navigates to the
+  pre-filtered feed (`?artist=…` or `?venue=…`).
+- Optional polish: `pg_trgm` extension + a trigram-similarity rank
+  for typo tolerance ("deborah" → "Deborah De Luca").
+- Decide whether to keep the 350ms debounce or tighten to 150ms now
+  that it's live and we can A/B-feel it.
 
 ---
 
@@ -165,16 +179,67 @@ default 14.
 
 ---
 
+## Phase 4f.1 — SoundCloud + Bandcamp avatar fallback — **shipped**
+
+Closed the visible-image gap for the 62% of artists with no
+Spotify avatar — underground/local acts that were rendering as
+deterministic initials in the lineup grid.
+
+- **Migration 0020** added `artists.soundcloud_image_url` +
+  `artists.bandcamp_image_url`. Hot-linked CDN URLs (no Storage
+  mirroring) — see `backfill-avatars.ts` header comment for
+  rationale.
+- Pipeline (`firecrawl.ts`) captures og:image during normal
+  enrichment.
+- One-shot backfill (`backfill-avatars.ts`) closed the gap on 592
+  already-enriched artists with `--green-light --hotlink`.
+- Web cascade (`lineup-list.tsx`, EventCard hero):
+  `spotify_image_url ?? soundcloud_image_url ?? bandcamp_image_url
+  ?? initials`.
+
+Coverage at ship: 700 SP / 403 SC / 79 BC across 1863 artists,
+~63% rendered before initials.
+
+### 4f.1.1 og:image direct scrape (LLM hallucination repair) — **shipped**
+
+Post-4f.1 a stale-avatar bug surfaced (DBBD on the Sirens event).
+Root cause: Firecrawl's LLM extract had been returning
+hallucinated/stale URLs in the deprecated SoundCloud numeric format
+(`avatars-000NNNNNNN-…`); the current CDN format is base64-style.
+Of 410 backfilled SC URLs, 273 (~67%) were dead.
+
+Fix: a private `scrapeOgImage()` helper in `firecrawl.ts` that does
+a direct GET on the profile page, regexes
+`<meta property="og:image">`, validates against a CDN allow-list,
+and HEAD-checks before persistence. The og:image scrape and LLM
+extract now run in parallel via `Promise.all`. Repair script
+`repair-sc-images.ts` re-scraped all 410 URLs (403 replaced, 7
+nulled, 0 errors). Forward-looking: future enrichment, monthly
+refresh, and `backfill-avatars.ts` all auto-correct now without
+further changes.
+
+---
+
 ## Phase 7 — Audio previews
 
 Medium-to-high lift. Real user value-add but requires integration
-surface area. Consider feature-flagging for beta.
+surface area.
 
-### 7.1 Per-artist quick-play widget
+### 7.1 Per-artist quick-play widget — **shipped (basic)**
 
-Embed Spotify's audio preview iframe on each `LineupList` artist card.
-Falls back gracefully when no `spotify_url` is present. Track play
-events for future recommendation signal.
+Ahmed shipped this early (commit `8d847d9`,
+`apps/web/src/components/lineup-list.tsx`): an inline play button
+on each lineup row that expands a Spotify embed iframe (when
+`spotify_url` exists) or a SoundCloud player fallback. Single
+preview open at a time — tapping a second collapses the first.
+Cyan accent on the play button matches brand.
+
+Open work in 7.1:
+- Track tap-to-play events to feed a future recommendation signal
+  (the original 7.1 spec called for this; not yet wired).
+- Decide whether the Spotify iframe (which requires user Spotify
+  auth for full-track) is the right fallback vs. just the 30s
+  preview audio via the Web API.
 
 ### 7.2 Lineup-aggregate playlist
 
@@ -277,10 +342,11 @@ demand is proven.
   Railway cron for any new enrichment passes, Supabase for storage.
   No new hosts.
 - **Schema migrations get numbered sequentially.** Next available is
-  `0020_*`. Recent additions: 0015 dedup function, 0016 venue.image_url,
+  `0021_*`. Recent additions: 0015 dedup function, 0016 venue.image_url,
   0017 events.setting, 0018 genre cleanup + remap, 0019 user_prefs
-  preferred_setting split. Migrations don't get rewritten; if a change
-  is wrong, it's superseded by the next numbered migration.
+  preferred_setting split, 0020 artist external images (SC/BC).
+  Migrations don't get rewritten; if a change is wrong, it's
+  superseded by the next numbered migration.
 - **User-facing ML stays simple.** Tag-overlap scoring, exponential
   moving averages, weighted popularity — no model training, no vector
   DB, until the taxonomy-based approach obviously saturates.
@@ -337,3 +403,38 @@ half of the underground heuristic without rerunning LLM enrichment.
   `audit-cleanup.ts --category=non_artist_names --apply`. ~13 garbage
   artist rows deleted with audit backup; cascaded `event_artists`
   deletes handled cleanly.
+
+### Phase 4f.1 + 4f.1.1 — both shipped
+
+- **4f.1 — SC/BC avatar fallback — done (2026-04-25).** See dedicated
+  section above.
+- **4f.1.1 — og:image LLM-hallucination repair — done (2026-04-25).**
+  Repair script ran in 25.8s; 403/410 SC URLs replaced. firecrawl.ts
+  now uses direct GET + regex for og:image and the LLM extract is
+  no longer asked for image URLs at all.
+
+### MUSICBRAINZ_USER_AGENT env required (post-Ahmed cleanup)
+
+Ahmed's `f4d5b81` removed the `MUSICBRAINZ_USER_AGENT` default in
+`packages/ingestion/src/env.ts` — the var is now required. Verify
+the var is set in Railway env before the next nightly cron, or the
+ingestion run will throw at startup. Local dev: `.env.example`
+points to `Curi/0.1 (your-contact@example.com)` as a placeholder,
+override per-developer.
+
+### Cross-collaborator coordination note
+
+As of 2026-04-25 the repo has two direct-to-main contributors
+(Christian + Ahmed). No branch protection or PR-required gates yet.
+Practical implications:
+
+- Always `git fetch origin main` before assuming the local tree is
+  the deployed state — Ahmed pushed six commits in one afternoon
+  while Christian was working on Phase 4f.1.
+- The date-picker rewrite in `fab72f8` removed the inline rationale
+  comments + WAI-ARIA dialog-pattern keyboard nav from
+  `components/date-picker.tsx`. If accessibility regression
+  matters, that's the file to spot-check.
+
+If the contributor count grows, consider adding GitHub branch
+protection on `main` requiring at least one approving review.
