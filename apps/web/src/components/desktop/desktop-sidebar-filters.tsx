@@ -175,6 +175,11 @@ export function DesktopSidebarFilters({
       setting: [],
       subgenres: [],
       q: '',
+      // Phase 6.3 — Clear-all also nukes search-driven filters so the
+      // URL doesn't keep a stale ?artist=/?venue= scope after the
+      // user clears every visible toggle.
+      artist: null,
+      venue: null,
     });
   }
 

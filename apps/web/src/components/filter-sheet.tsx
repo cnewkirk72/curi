@@ -123,6 +123,11 @@ export function FilterSheet({ open, onClose, initialFilters, userPrefs }: Props)
       setting: [],
       subgenres: [],
       q: '',
+      // Phase 6.3 — search-driven filters cleared by Clear-all too,
+      // so the URL doesn't keep an invisible artist/venue scope after
+      // the user empties every visible facet.
+      artist: null,
+      venue: null,
     });
   }
 
