@@ -22,8 +22,14 @@
 //      novel ones land under a parent in taxonomy_subgenres.
 //
 // Backfill-run-only:
-//   - Paginated load of artists (default `WHERE last_enriched_at IS
-//     NULL`, full table on `--force`).
+//   - Paginated load of artists (default cohort: artists missing
+//     Spotify or popularity checks — i.e. `spotify_checked_at IS NULL
+//     OR popularity_checked_at IS NULL`. Full table on `--force`).
+//     Note: we deliberately do NOT filter on `last_enriched_at IS NULL`
+//     anymore — the MB-only daily cron stamps last_enriched_at on every
+//     artist after the MB pass, so that filter always returns zero in
+//     practice. The Spotify/popularity timestamps are the real "did the
+//     full pipeline run?" signal, identical to post-scrape-enrich.ts.
 //   - Optional `--limit` for dry runs.
 //   - JSON checkpoint after every artist (crash-resumable).
 //   - Verbose summary at the end (LLM confidence histogram, tier
@@ -88,9 +94,15 @@ function parseArgs(argv: string[]): Args {
 }
 
 /**
- * Paginated load of artists, filtered to unenriched by default. Uses
- * .range() because Supabase silently caps unpaginated selects at 1000
- * rows — a bug we hit during the 4e dry run and are not repeating.
+ * Paginated load of artists, filtered to "needs full enrichment" by
+ * default — meaning `spotify_checked_at IS NULL OR popularity_checked_at
+ * IS NULL`. Uses .range() because Supabase silently caps unpaginated
+ * selects at 1000 rows — a bug we hit during the 4e dry run and are not
+ * repeating.
+ *
+ * On `--force` we load the full artists table (used for re-running over
+ * an already-enriched cohort, e.g. with `--skip-spotify` to re-run only
+ * the popularity-discovery pass).
  */
 async function loadArtistsPaginated(force: boolean): Promise<Artist[]> {
   const client = supabase();
@@ -99,11 +111,13 @@ async function loadArtistsPaginated(force: boolean): Promise<Artist[]> {
     let q = client
       .from('artists')
       .select(
-        'id, name, slug, mb_tags, last_enriched_at, soundcloud_url, bandcamp_url',
+        'id, name, slug, mb_tags, last_enriched_at, soundcloud_url, bandcamp_url, spotify_checked_at, popularity_checked_at',
       )
       .order('id', { ascending: true })
       .range(offset, offset + PAGE_SIZE - 1);
-    if (!force) q = q.is('last_enriched_at', null);
+    if (!force) {
+      q = q.or('spotify_checked_at.is.null,popularity_checked_at.is.null');
+    }
     const { data, error } = await q;
     if (error) throw error;
     const rows = (data ?? []) as unknown as Artist[];
@@ -120,7 +134,7 @@ async function main(): Promise<void> {
   const artists = args.limit ? allArtists.slice(0, args.limit) : allArtists;
   console.log(
     `Loaded ${allArtists.length} artist${
-      args.force ? 's total' : 's without enrichment'
+      args.force ? 's total' : 's needing full enrichment'
     }${args.limit ? ` (limited to ${args.limit})` : ''}.`,
   );
   if (artists.length === 0) {
