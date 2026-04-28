@@ -359,7 +359,7 @@ export function SearchSuggestions({
             </div>
             <p className="text-xs text-fg-muted">
               No matches for{' '}
-              <span className="font-medium text-fg-primary">"{query}"</span>
+              <span className="font-medium text-fg-primary">{'"'}{query}{'"'}</span>
             </p>
             <p className="text-2xs text-fg-dim">Try a different spelling or a broader term.</p>
           </div>
@@ -375,7 +375,7 @@ export function SearchSuggestions({
             ↵
           </kbd>{' '}
           to search for{' '}
-          <span className="font-medium text-fg-primary">"{query}"</span>
+          <span className="font-medium text-fg-primary">{'"'}{query}{'"'}</span>
         </div>
       )}
     </div>
