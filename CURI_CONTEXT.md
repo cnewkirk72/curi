@@ -13,9 +13,10 @@ Curi is a PWA that curates upcoming live-music events in NYC, filtered by
 (event-context). Originally scoped to electronic; as of Phase 3.15 it
 covers all genres (rock/pop/jazz/hip-hop/metal/folk/latin parents exist
 in the taxonomy). The MVP is live, the filter taxonomy was rebuilt in
-Phase 3.18, the desktop responsive refactor (Phase 6.1) shipped, and
-the SoundCloud/Bandcamp avatar fallback (Phase 4f.1) closed the
-biggest remaining hero-image gap.
+Phase 3.18, the desktop responsive refactor (Phase 6.1) shipped, the
+SoundCloud/Bandcamp avatar fallback (Phase 4f.1) closed the biggest
+remaining hero-image gap, and as of 2026-04-27 there's an iOS native
+shell distributed via TestFlight (v0.1.1) with native Google Sign-In.
 
 ### Unique value in the event-curation space
 
@@ -55,7 +56,11 @@ multi-dimensional filtering** powered by an AI-enriched artist catalog:
 ## Stack (non-negotiable)
 
 - **apps/web** — Next.js 14 App Router, TypeScript, Tailwind, shadcn/ui,
-  shipped as a PWA (manifest + service worker + offline route).
+  shipped as a PWA (manifest + service worker + offline route). Also
+  the source for the **iOS native shell** — Capacitor 8 wraps the same
+  Next.js build for App Store distribution (`apps/web/ios/`,
+  `apps/web/capacitor.config.ts`; both untracked locally as of
+  2026-04-27, see "Tabled" punch list).
 - **packages/ingestion** — TypeScript ingestion worker. Scrapers +
   MusicBrainz + Spotify + LLM enrichment. Runs on Railway cron.
 - **supabase/** — Postgres migrations, RLS policies, seed data.
@@ -260,7 +265,7 @@ some scraper-junk still occasionally slips through (see "Sharp edges").
 
 ---
 
-## Current status (as of 2026-04-25 evening)
+## Current status (as of 2026-04-27)
 
 ### Phase 6 (desktop + discovery polish) — partial ship
 
@@ -412,6 +417,55 @@ Forward-looking: the firecrawl.ts patch means future enrichment, the
 monthly refresh cron, and `backfill-avatars.ts` all auto-correct
 without further changes.
 
+### Phase iOS — Native shell + TestFlight v0.1.1 — shipped (2026-04-27)
+
+The web build is now wrapped as a Capacitor 8 iOS app and distributed
+via TestFlight. v0.1.1 — the first build that actually opens for
+testers — includes the fix that unblocked the project: native Google
+Sign-In through `@capgo/capacitor-social-login`, which routes around
+Google's `disallowed_useragent` policy that blocks OAuth in embedded
+WebViews.
+
+**Architecture.** The hook `apps/web/src/lib/auth/use-google-sign-in.ts`
+branches on `Capacitor.isNativePlatform()`:
+
+- **Web** — defers to the existing `signInWithGoogle` server action
+  (PKCE redirect through Supabase). No change to the proven path.
+- **iOS** — dynamic-imports `@capgo/capacitor-social-login`, calls
+  `SocialLogin.login` to surface the native iOS account picker, takes
+  the returned `idToken`, and calls
+  `supabase.auth.signInWithIdToken({ provider: 'google', token })`
+  for the session exchange.
+
+The plugin is initialized once at boot in
+`apps/web/src/components/init-social-login.tsx` (mounted in root
+layout, mirrors the `RegisterSW` pattern with a Capacitor-native
+guard so it's a noop in the browser). Both `/login` and the onboarding
+sign-in step (`components/onboarding/signin-step.tsx`) call the same
+hook, so platform-branching lives in one place.
+
+**Supabase setup.** There's still a single Google provider on the
+Supabase project — the iOS Client ID
+(`280343146266-l4k8d1asco7s5ggbjdb98cha8u8ta7e1`) is appended,
+comma-separated, to the provider's "Authorized Client IDs" field, with
+the "Skip nonce checks" toggle on so the native ID-token can be
+accepted alongside the existing web OAuth flow. The web OAuth Client
+ID is unchanged. **Don't replace** the Authorized Client IDs value;
+append.
+
+**Info.plist** carries the reversed iOS Client ID under
+`CFBundleURLTypes` /  `CFBundleURLSchemes` —
+`com.googleusercontent.apps.280343146266-l4k8d1asco7s5ggbjdb98cha8u8ta7e1`
+— so the system can route the OAuth callback back into the app.
+
+**Untracked-in-repo as of 2026-04-27.** The Capacitor scaffold
+(`apps/web/ios/`, `apps/web/capacitor.config.ts`,
+`apps/web/public/capacitor-shell/`) lives only on Christian's local
+machine. It compiles, archives, and signs from there. Tracking these
+files is queued in the punch list — needs a one-time pass to
+gitignore the build artifacts (`Pods/`, `xcuserdata/`, `*.xcuserstate`)
+without dropping the source. See "Tabled" below.
+
 ### Phase 7 (audio previews) — partial early-ship
 
 - **7.1 — Per-artist quick-play widget — shipped early (basic).**
@@ -463,6 +517,7 @@ matters for the picker, that's the place to look.
   profile, login, Google OAuth, PWA, responsive)
 - Phase 4: full enrichment pipeline (Spotify + LLM + Firecrawl + backfill)
 - Phase 4f.1 / 4f.1.1: SC/BC avatar fallback + og:image direct scrape
+- Phase iOS: Capacitor 8 wrapper + native Google Sign-In + TestFlight v0.1.1
 - Phase 5 (partial, see above): 5.1 profile, 5.2 onboarding,
   5.4 dynamic subgenre pills, onboarding redirect gate
 
@@ -492,6 +547,14 @@ matters for the picker, that's the place to look.
   `f4d5b81` made the env var required (no default fallback) — if
   the var isn't set in Railway, next nightly cron will throw at
   startup.
+- **Track the iOS Capacitor scaffold in git.** `apps/web/ios/`,
+  `apps/web/capacitor.config.ts`, and `apps/web/public/capacitor-shell/`
+  exist only on Christian's local machine as of 2026-04-27. v0.1.1
+  archives + signs from there. Needs a one-time pass to add a proper
+  iOS `.gitignore` (Pods/, xcuserdata/, *.xcuserstate, build/) and
+  commit the source. Risk if left untracked: any rebuild on a fresh
+  clone (or by Ahmed) requires re-running `npx cap add ios` and
+  re-applying the Info.plist URL-scheme block.
 - **`spotify_followers` backfill.** Phase 3.18's underground rule
   omits Spotify follower count because the column is sparse — only
   populated on artists enriched after migration 0012. Backfill the

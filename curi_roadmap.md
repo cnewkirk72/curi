@@ -9,8 +9,17 @@ partial (5.1 / 5.2 / 5.4 + onboarding redirect gate); Phase 6 partial
 (6.1 desktop responsive + 6.2 date selector + 6.3 basic title-only
 search by Ahmed); Phase 7 partial (7.1 basic iframe player by Ahmed);
 Phase 3 polish 3.15–3.18 (NYC-wide expansion, pre-insert dedup, hero
-fallback chain, filter vocabulary rebuild). See `CURI_CONTEXT.md` for
-status detail.
+fallback chain, filter vocabulary rebuild); **Phase iOS** (Capacitor 8
+shell + native Google Sign-In + TestFlight v0.1.1, 2026-04-27). See
+`CURI_CONTEXT.md` for status detail.
+
+**Actively in progress (2026-04-27):**
+- **Phase 6.3 v2** — smart search with live previews + entity detection
+  (purple artist pill / amber venue pill). Completes Ahmed's basic
+  ship.
+- **Phase 5.6** — SoundCloud-following personalized sort. Imports the
+  user's SC follow graph as a ranking signal in the within-day
+  re-sort. Repurposes (and effectively supersedes) Phase 5.3.
 
 ---
 
@@ -46,10 +55,20 @@ step, read by the middleware gate.
 
 Retroactively editable from `/profile` via `<PreferencesForm>`.
 
-### 5.3 Sorting options — **deferred**
+### 5.3 Sorting options — **deferred / superseded by 5.6**
 
-Not shipped in Phase 5. Re-open when the feed starts feeling
-generic to onboarded users.
+> **Update (2026-04-27):** the personalization-via-sort story is being
+> picked up by **Phase 5.6 (SoundCloud follow boost)** rather than the
+> generic popularity/preference/time-decay model below. The SC-follow
+> signal is a stronger personalization input than tag overlap — it's a
+> direct expression of taste from a platform users already curate
+> heavily — and it boosts the existing `enrichmentScore` rather than
+> introducing a new `events.popularity_score` column. The original 5.3
+> spec is preserved here for reference; revisit only if 5.6 ships and
+> still feels generic for users who don't connect SoundCloud.
+
+Original 5.3 spec — re-open only if 5.6 underdelivers for SC-disconnected
+users:
 
 - **Popularity (default):** already computable — weighted score across
   `spotify_popularity`, `soundcloud_followers`, `bandcamp_followers`.
@@ -82,6 +101,132 @@ the sign-out action clears it so a different user on the same
 browser re-verifies. `/auth/callback` makes the same decision at
 exchange time to save a redirect hop.
 
+### 5.6 SoundCloud-following personalized sort — **actively in progress**
+
+Replaces the generic 5.3 spec. The user connects their SoundCloud
+account by entering their username on `/profile`; Curi imports their
+public follow graph and uses it as a personalization signal in the
+within-day event re-sort. Events whose lineup contains followed
+artists float to the top of each day's bucket, and the event card
+surfaces a small "you follow [Artist]" badge so the user understands
+*why* the event is prioritized.
+
+**Why SC follows specifically:** SoundCloud is the platform NYC's
+underground scene curates most heavily — a follow there is a stronger
+taste signal than a Spotify follow or a tag overlap. The signal is
+also free of OAuth friction because SC's `/{username}/following` page
+is publicly readable.
+
+**Auth approach: username-only, no SC OAuth.** SoundCloud closed new
+API app registrations years ago and the application form is a black
+hole. Username-only is also a cleaner mental model — the user is
+telling Curi who they follow, not authorizing third-party access.
+
+**Profile UX flow (per Christian's spec):**
+
+1. **Idle state:** `/profile` shows a "Connect your SoundCloud" card
+   with a single text input (`soundcloud.com/` prefix label, then
+   editable username). No Save button visible.
+2. **Typing state:** as soon as the user types into the input, a
+   sleek "Save" button slides in next to the field (cyan accent,
+   `enter-up` 280ms).
+3. **Save tap:** instead of writing immediately, surface a glass
+   confirmation toast card describing the sync in user-facing
+   language. **No "scrape" terminology** — say "sync your follows"
+   or "import the artists you follow." Buttons: **Cancel** (ghost) /
+   **Sync follows** (cyan primary).
+4. **Confirm:** the toast dismisses; a small dynamic status bar
+   appears under the SC card on the profile page (tabular numerals,
+   thin progress indicator, "Syncing your follows…" copy). **The
+   sync runs in the background** — the user can navigate away and
+   keep using the app while it runs.
+5. **Sync complete:** a confirmation toast appears with copy along
+   the lines of "Imported 247 artists you follow on SoundCloud" and
+   a single **OK** button.
+6. **OK tap:** hard-refreshes the page so the home feed re-sorts
+   with the new follow-aware ranking applied.
+7. **Error path:** the status bar turns amber and surfaces a retry
+   button; the toast on completion is replaced with a non-blocking
+   amber error toast.
+
+**Refresh strategy: hybrid.**
+
+- Immediate sync on first save and on manual "Refresh" tap in
+  profile.
+- Weekly background re-sync via existing Railway cron (Sunday night,
+  piggybacks on Phase 8.2). Nightly is overkill — most users don't
+  follow new SC artists daily.
+- Lazy invalidation: if `soundcloud_last_synced_at < now() - 14 days`
+  and the user opens the app, fire a non-blocking re-sync and surface
+  a subtle "Your SoundCloud follows were updated" toast on
+  completion.
+
+**Scrape strategy: SC api-v2 first, Playwright fallback.** SC's lazy-
+loaded `/following` page is backed by a public XHR endpoint
+(`api-v2.soundcloud.com/users/{user_id}/followings?client_id=…&limit=200`)
+that returns clean JSON. The `client_id` is publicly visible in SC's
+homepage bundle and rotates rarely; a small "fetch fresh client_id
+from sc.com homepage HTML" helper handles the rotation case. If SC
+ever blocks the api-v2 path by user-agent or rate, fall back to
+Playwright headless with scroll simulation. Christian has explicitly
+green-lit this approach.
+
+**Schema (target — to be confirmed against the live schema before
+the migration drafts):**
+
+```sql
+create table user_soundcloud_follows (
+  user_id uuid references auth.users(id) on delete cascade,
+  soundcloud_username text not null,
+  display_name text,
+  followed_at timestamptz,
+  synced_at timestamptz default now(),
+  primary key (user_id, soundcloud_username)
+);
+
+alter table user_prefs
+  add column soundcloud_username text,
+  add column soundcloud_last_synced_at timestamptz;
+
+alter table artists
+  add column soundcloud_username text;
+
+create index idx_artists_soundcloud_username
+  on artists (lower(soundcloud_username));
+```
+
+`user_soundcloud_follows` rather than a `text[]` on `user_prefs`
+because (a) RLS is cleaner with a row policy, (b) per-row
+`synced_at` lets us do delta syncs, (c) joins from
+`event_artists → artists.soundcloud_username → user_soundcloud_follows`
+stay clean SQL.
+
+**Sort integration.** Extend the existing `enrichmentScore` in
+`apps/web/src/lib/enrichment.ts` with an optional
+`followedArtistUsernames: Set<string>` parameter. If any lineup
+artist's `soundcloud_username` (lowercased) is in the set, add a
+constant boost (`FOLLOWED_ARTIST_BOOST` ~ 1000 per match). The
+within-day re-sort in `infinite-feed.tsx` already calls
+`enrichmentScore` on the rendered window — this piggybacks on it
+with zero changes to keyset cursor or server-side ordering.
+
+**Subtasks:**
+
+- 5.6.1 Profile UI: SC username card, dynamic Save button, glass
+  confirmation toast, status bar, success toast → page-refresh flow
+- 5.6.2 Scraper: SC api-v2 client + client_id resolver + Playwright
+  fallback path scaffolded but not deployed unless needed
+- 5.6.3 Schema migration: `user_soundcloud_follows`,
+  `user_prefs.soundcloud_username`,
+  `user_prefs.soundcloud_last_synced_at`, `artists.soundcloud_username`
+  + index + backfill from `artists.soundcloud_url`
+- 5.6.4 Sort integration: `enrichmentScore` boost +
+  `<EventCard>` "you follow [Artist]" badge
+- 5.6.5 Background refresh: Sunday-night Railway cron + lazy
+  invalidation hook on app open
+
+Estimate: 5–7 days end-to-end, blocking on 6.3 shipping first.
+
 ---
 
 ## Phase 6 — Desktop experience + discovery polish
@@ -106,24 +251,64 @@ a date sets `when='custom'` with `date_from = picked day` and
 through the `?when=custom&from=YYYY-MM-DD` URL param. Date math
 handles NYC DST via `Intl.DateTimeFormat` shortOffset sampling.
 
-### 6.3 Dynamic live search (typeahead) — **partial ship**
+### 6.3 Dynamic live search (typeahead) — **partial ship → v2 actively in progress**
 
 Ahmed shipped a basic version (commit `87ced38`): debounced 350ms
 input → `?q=` URL param → server-side `ilike` on `events.title` only.
 The Ahmed version is live and useful, but the original 6.3 spec
-called for cross-entity search.
+called for cross-entity search with live previews and entity-aware
+filter pills. **v2 is the active workstream as of 2026-04-27.**
 
-**Open work in 6.3:**
-- Extend the `getUpcomingEvents` query (or a sibling RPC) to also
-  search `artists.name` (via the lineup join) and `venues.name`.
-- Build a `<SearchSuggestions>` popover component that renders
-  grouped result rows (Events / Artists / Venues) under the input.
-  Tapping an artist or venue suggestion navigates to the
-  pre-filtered feed (`?artist=…` or `?venue=…`).
-- Optional polish: `pg_trgm` extension + a trigram-similarity rank
-  for typo tolerance ("deborah" → "Deborah De Luca").
-- Decide whether to keep the 350ms debounce or tighten to 150ms now
-  that it's live and we can A/B-feel it.
+**v2 spec (Christian, 2026-04-27):**
+
+- Replace the page-refresh debounced search with a **live preview
+  dropdown** anchored to the input. Width matches the search bar.
+- Up to 10 events shown: thumbnail image + event name + venue name.
+- **Smart entity detection:** if the typed query matches an artist
+  name with high confidence, show a "Show events with [ARTIST]"
+  button at the top of the dropdown (greyed/secondary affordance
+  until tapped). Same pattern for venues with "Show events at
+  [VENUE]".
+- Tapping an artist entity button filters the main listing to that
+  artist with a **violet filter pill** (uses `--violet` /
+  `--violet-chip-bg` tokens already defined in `globals.css`).
+- Tapping a venue entity button filters with an **amber filter
+  pill** (`--amber` / `--amber-chip-bg`).
+- Existing genre pills remain cyan. Vibes / settings stay on their
+  current tokens. The new pill colors slot into the active-chip row
+  in `filter-bar.tsx` without breaking the visual rhythm.
+
+**Architecture (target — to be confirmed during the kickoff):**
+
+- Single Postgres RPC `search_suggestions(q text)` returning three
+  buckets in one round-trip: events (max 10), artists (max 5),
+  venues (max 3).
+- `pg_trgm` extension + GIN indexes on `lower(events.title)`,
+  `lower(artists.name)`, `lower(venues.name)` for typo tolerance and
+  sub-100ms p95.
+- Client component `<SearchSuggestions>` — glass dropdown using the
+  existing `curi-glass` utility, anchored under the input,
+  AbortController-cancelled in-flight requests, 150ms debounce
+  (down from current 350ms — Christian flagged the slower value).
+- URL state: new `?artist=<slug>` and `?venue=<slug>` params plumbed
+  through `serializeFilters` / `parseFilters` in `lib/filters.ts`.
+- Mobile: full-width sheet that slides up from the input.
+
+**Subtasks (proposed):**
+
+- 6.3.1 Migration: `pg_trgm`, GIN indexes, `search_suggestions` RPC,
+  `artists.slug` if not already present
+- 6.3.2 `<SearchSuggestions>` popover (glass dropdown, kbd nav,
+  abortable fetch, 150ms debounce)
+- 6.3.3 Entity detection (top match score ≥ 0.7 + query length
+  threshold) + violet/amber filter pill variants in `filter-bar.tsx`
+- 6.3.4 URL state: `?artist=` / `?venue=` params end-to-end (parse,
+  serialize, server-side filter join)
+- 6.3.5 Mobile sheet variant + a11y polish (aria-activedescendant,
+  Esc-to-dismiss, focus management)
+
+Estimate: 3–4 days. Ships before Phase 5.6 because the search RPC
+and slug infrastructure unblock part of 5.6's match path.
 
 ---
 
@@ -217,6 +402,59 @@ extract now run in parallel via `Promise.all`. Repair script
 nulled, 0 errors). Forward-looking: future enrichment, monthly
 refresh, and `backfill-avatars.ts` all auto-correct now without
 further changes.
+
+---
+
+## Phase iOS — Native shell + TestFlight v0.1.1 — **shipped (2026-04-27)**
+
+The web build is now wrapped as a Capacitor 8 iOS app and distributed
+to internal testers via TestFlight. The unblocking change was switching
+Google Sign-In from the web OAuth redirect (which Google blocks in
+embedded WebViews with a `disallowed_useragent` 403) to the native
+iOS account picker via `@capgo/capacitor-social-login` plus
+Supabase's `signInWithIdToken`.
+
+**Stack additions:**
+- `@capacitor/core`, `@capacitor/ios`, `@capacitor/cli` ^8.3.x
+- `@capgo/capacitor-social-login` ^8.3.20 (Capacitor 8 compatible;
+  the obvious-named `@capacitor-community/social-login` package
+  doesn't exist — false flag on the first install attempt)
+- Capacitor companions: `@capacitor/app`, `@capacitor/browser`,
+  `@capacitor/haptics`, `@capacitor/splash-screen`, `@capacitor/status-bar`
+
+**Key files:**
+- `apps/web/src/lib/auth/use-google-sign-in.ts` — platform-branching
+  hook. Web → existing server action. iOS → native ID-token →
+  `signInWithIdToken`.
+- `apps/web/src/components/init-social-login.tsx` — boot-time
+  `SocialLogin.initialize` with the iOS Client ID. Mounted in root
+  layout, `Capacitor.isNativePlatform()`-guarded so it's a noop in
+  the browser.
+- `apps/web/src/app/login/login-google-button.tsx` — client wrapper
+  for the (otherwise RSC) `/login` page.
+- `apps/web/src/components/onboarding/signin-step.tsx` — uses the
+  same hook with `redirectTo: '/onboarding'`.
+- `apps/web/ios/App/App/Info.plist` — reversed iOS Client ID under
+  `CFBundleURLTypes` / `CFBundleURLSchemes` so the OAuth callback
+  routes back into the app.
+
+**Supabase config (one-time, completed):** the iOS Client ID is
+appended (comma-separated) to the existing Google provider's
+"Authorized Client IDs", with "Skip nonce checks" enabled. Web OAuth
+client unchanged. **Don't replace** that field — append to it.
+
+**Open work for v0.1.2+:**
+- Track the iOS Capacitor scaffold in git — see "Active follow-ups".
+- Smoke-test sign-out → sign back in, force-quit cold start, and
+  the deferred sign-in (skip onboarding → sign in later) path on
+  device.
+- Submit for App Store review once internal testers confirm the
+  flows hold up over a few days.
+- Apple Sign-In (`SignInWithApple`) — App Store guideline 4.8 may
+  require it as a sibling option to Google for any app that offers
+  third-party sign-in. The same `@capgo/capacitor-social-login`
+  plugin handles it; the same Supabase pattern (provider config +
+  `signInWithIdToken`) applies.
 
 ---
 
@@ -412,6 +650,31 @@ half of the underground heuristic without rerunning LLM enrichment.
   Repair script ran in 25.8s; 403/410 SC URLs replaced. firecrawl.ts
   now uses direct GET + regex for og:image and the LLM extract is
   no longer asked for image URLs at all.
+
+### Track the iOS Capacitor scaffold in git (Phase iOS tail)
+
+The iOS shell that ships v0.1.1 to TestFlight lives only on Christian's
+local machine as of 2026-04-27. Untracked paths:
+
+- `apps/web/ios/` (the native Xcode project)
+- `apps/web/capacitor.config.ts`
+- `apps/web/public/capacitor-shell/`
+
+What's needed:
+1. A proper iOS `.gitignore` for `Pods/`, `xcuserdata/`,
+   `*.xcuserstate`, `build/`, `DerivedData/`, `.DS_Store`.
+2. Commit the source tree (Info.plist with the URL-scheme block,
+   `App.xcodeproj`, etc.).
+3. Document the local-only setup steps that aren't captured in the
+   tree — the iOS Client ID env, the signing certificate, and the
+   first-time `pnpm exec cap sync ios` after a fresh clone.
+
+Risk if left untracked: any rebuild on a fresh clone (or by Ahmed)
+requires re-running `npx cap add ios` and re-applying the Info.plist
+URL-scheme block, which is easy to miss and would silently break the
+native sign-in path. `IOS_TESTFLIGHT_GUIDE.md` (already at repo root)
+covers the build/upload steps; this follow-up is just about source
+control hygiene.
 
 ### MUSICBRAINZ_USER_AGENT env required (post-Ahmed cleanup)
 
