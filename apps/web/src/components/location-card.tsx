@@ -1,13 +1,3 @@
-// Venue / location card for the event detail screen.
-//
-// We intentionally avoid embedding a real map here — a map SDK (Mapbox,
-// Google Maps) would add ~200KB+ of JS, an API key env var, and a
-// billing dependency, none of which are worth it for a "see where this
-// is" use case. Instead we show a stylized glass card and hand off to
-// the user's native maps app via a universal geo/https URL. Apple Maps
-// and Google Maps both accept `https://maps.google.com/?q=...`, and
-// iOS will prompt to open in Apple Maps when installed.
-
 import { MapPin, ArrowUpRight, Globe } from 'lucide-react';
 
 type Venue = {
@@ -41,18 +31,26 @@ export function LocationCard({ venue }: { venue: Venue }) {
   const mapsUrl = mapsUrlFor(venue);
   const hasCoords = venue.lat != null && venue.lng != null;
 
+  const mapEmbedQuery = hasCoords
+    ? `${venue.lat},${venue.lng}`
+    : [venue.name, venue.neighborhood, 'New York, NY'].filter(Boolean).join(', ');
+  const mapEmbedUrl = `https://maps.google.com/maps?q=${encodeURIComponent(mapEmbedQuery)}&output=embed`;
+
   return (
     <div className="curi-glass overflow-hidden rounded-2xl shadow-card">
-      {/* Stylized "map" backdrop — a subtle radial glow that evokes a
-          pin on a map without actually rendering one. Keeps the card
-          feeling like a location card while staying on-brand. */}
-      <div className="relative h-24 overflow-hidden border-b border-border bg-gradient-to-br from-accent/15 via-accent/5 to-transparent">
-        <div className="absolute inset-0 opacity-60 [background-image:radial-gradient(rgba(34,211,238,0.15)_1px,transparent_1px)] [background-size:16px_16px]" />
-        <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
-          <div className="flex h-10 w-10 items-center justify-center rounded-full border border-accent/40 bg-bg-deep/80 shadow-glow-sm backdrop-blur">
-            <MapPin className="h-4 w-4 text-accent" />
-          </div>
-        </div>
+      <div className="relative h-40 overflow-hidden border-b border-border">
+        <iframe
+          src={mapEmbedUrl}
+          title="Venue map"
+          className="w-full border-0"
+          style={{
+            height: 'calc(100% + 160px)',
+            marginTop: '-50px',
+            filter: 'invert(1) hue-rotate(180deg) saturate(0.25) brightness(0.75)',
+          }}
+          loading="lazy"
+          referrerPolicy="no-referrer"
+        />
       </div>
 
       <div className="space-y-3 p-5">
