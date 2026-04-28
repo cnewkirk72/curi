@@ -145,9 +145,15 @@ function asOne<T>(v: T | T[] | null | undefined): T | null {
 //   - Colon followed by 3+ tokens: "The 2016 Party: Party like it's 2016"
 //   - "Presents" anywhere: "DJ X Presents Future Funk"
 //   - "The X Party" shape: "The Disco Party"
+//   - Dash + event-promo keyword in tail: "Cabros Chicos - Peso Pluma
+//     Tribute Mexican Dance Parrty" / "Wednesday JAmZZ - All Day Long"
 //
-// We deliberately avoid filtering on "vs." / "feat." since legit
-// collabs use those (e.g. "Honey Dijon b2b The Blessed Madonna").
+// We deliberately avoid filtering on bare-dash, "vs." / "feat." since
+// legit collabs and live-set titles use those (e.g. "Honey Dijon b2b
+// The Blessed Madonna", "Tale of Us - Afterlife", "Artist - Live Set").
+// The dash pattern only fires when the tail contains a strong event
+// keyword (tribute|party|fiesta|festival|showcase|anniversary|
+// celebration|all day long).
 //
 // This is a triage filter, not a permanent classification — the right
 // long-term fix is to (a) tighten scraper title-parsers and (b) add a
@@ -165,9 +171,23 @@ export function isLikelyEventTitle(name: string): {
   if (/\bpresents\b/i.test(n)) {
     return { flagged: true, reason: 'contains-presents' };
   }
-  // "The X Party" — Christian's specific case.
+  // "The X Party" — recurring scraper-leaked shape.
   if (/^the\s+.+\bparty\b/i.test(n)) {
     return { flagged: true, reason: 'the-x-party' };
+  }
+  // Dash (hyphen / en-dash / em-dash with surrounding spaces) followed
+  // by an event-promo keyword in the tail. Catches the
+  // "Cabros Chicos - Peso Pluma Tribute Mexican Dance Parrty" shape.
+  // Keyword list is conservative: words that almost never appear in a
+  // real artist's name but are stock event-promo vocabulary.
+  // "parr?ty" handles the common "Parrty" misspelling we keep seeing
+  // in scraper-source titles.
+  if (
+    /\s[-–—]\s.*\b(tribute|parr?ty|fiesta|festival|showcase|anniversary|celebration|all[-\s]day[-\s]long)\b/i.test(
+      n,
+    )
+  ) {
+    return { flagged: true, reason: 'dash-with-event-keyword' };
   }
   return { flagged: false };
 }
