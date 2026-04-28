@@ -36,7 +36,6 @@
 // the event cards, profile cards, and date picker.
 
 import { useEffect, useMemo, useState } from 'react';
-import Link from 'next/link';
 import { Calendar, MapPin, Mic2, Search, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
@@ -234,6 +233,7 @@ export function SearchSuggestions({
         'curi-glass absolute left-0 right-0 top-full z-50 mt-2',
         'overflow-hidden rounded-2xl border shadow-card',
         'animate-enter-up motion-reduce:animate-none',
+        '!bg-bg-deep/95',
         // No pointer-events:none — the dropdown needs to receive
         // clicks. mt-2 keeps it visually separated from the input.
       )}
