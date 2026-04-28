@@ -52,6 +52,35 @@ export const env = {
   get defaultSources(): string {
     return optional('INGEST_DEFAULT_SOURCES', 'all');
   },
+  // ── Post-scrape enrichment (cron) ────────────────────────────────
+  // After the daily scrape runs, the cron chains a bounded full
+  // enrichment pass (Spotify + LLM + popularity-discovery) over
+  // artists in upcoming events that haven't been fully enriched yet.
+  // See post-scrape-enrich.ts for the cohort definition.
+  //
+  // Toggle off (set to 'false') to revert cli.ts to the pre-Phase-5.6
+  // behavior of "scrape only" — useful if external API budgets need
+  // an emergency cut. Defaults to enabled.
+  get autoEnrichEnabled(): boolean {
+    const v = optional('INGEST_AUTO_ENRICH', 'true').toLowerCase();
+    return v !== 'false' && v !== '0' && v !== 'off';
+  },
+  // Caps how many artists the nightly cron will enrich per run.
+  // Sized to keep API spend predictable and stay well under the daily
+  // Anthropic / Spotify / Firecrawl budgets even on a backlog day.
+  get autoEnrichLimit(): number {
+    const n = Number.parseInt(optional('INGEST_AUTO_ENRICH_LIMIT', '100'), 10);
+    return Number.isFinite(n) && n > 0 ? n : 100;
+  },
+  // Worker pool size for the post-scrape pass. Lower than backfill
+  // (10) to be polite to upstream APIs during the cron window.
+  get autoEnrichConcurrency(): number {
+    const n = Number.parseInt(
+      optional('INGEST_AUTO_ENRICH_CONCURRENCY', '4'),
+      10,
+    );
+    return Number.isFinite(n) && n > 0 ? n : 4;
+  },
   // Spotify Web API (Client Credentials). Optional — artist enrichment
   // gracefully skips Spotify when these are empty. Both must be set together.
   get spotifyClientId(): string {
