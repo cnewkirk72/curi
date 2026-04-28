@@ -230,22 +230,26 @@ export function SearchSuggestions({
       id={listboxId}
       aria-label="Search suggestions"
       className={cn(
-        'curi-glass absolute left-0 right-0 top-full z-50 mt-2',
-        'overflow-hidden rounded-2xl border shadow-card',
+        // Solid dark panel — no backdrop-blur here. Glass blur works
+        // over a predictable mono-chrome bg (e.g. bottom nav over the
+        // page canvas) but smears colorful event card images when the
+        // dropdown floats above the feed. A solid bg-base surface with
+        // the canonical border + card shadow reads cleanly over anything.
+        'absolute left-0 right-0 top-full z-50 mt-2',
+        'overflow-hidden rounded-2xl shadow-card',
+        'border border-white/[0.08]',
+        'bg-bg-base',
         'animate-enter-up motion-reduce:animate-none',
-        '!bg-bg-deep/95',
-        // No pointer-events:none — the dropdown needs to receive
-        // clicks. mt-2 keeps it visually separated from the input.
       )}
     >
       {/* Header: tiny status row. Renders the spinner when fetching
           fresh results so the user knows new matches may still
           arrive — the existing rows underneath stay visible (no
           flash-of-empty) so the dropdown feels stable while typing. */}
-      <div className="flex items-center justify-between gap-3 border-b border-white/5 bg-bg-deep/40 px-4 py-2">
+      <div className="flex items-center justify-between gap-3 border-b border-white/[0.10] bg-bg-deep px-4 py-2">
         <div className="flex items-center gap-2 text-2xs text-fg-dim">
           <Search className="h-3 w-3" aria-hidden />
-          <span className="tracking-tight">
+          <span className="tracking-tight" aria-live="polite" aria-atomic="true">
             {loading ? 'Searching…' : hasAnyResults ? 'Suggestions' : 'No matches'}
           </span>
         </div>
@@ -349,12 +353,15 @@ export function SearchSuggestions({
             (data !== null) so we don't briefly render "no matches" on
             the initial keystroke. */}
         {data && !hasAnyResults && !loading && (
-          <div className="px-4 py-8 text-center text-xs text-fg-muted">
-            No matches for{' '}
-            <span className="font-medium text-fg-primary">“{query}”</span>.
-            <div className="mt-1 text-2xs text-fg-dim">
-              Try a different spelling or a broader term.
+          <div className="flex flex-col items-center gap-2 px-4 py-8 text-center">
+            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-white/[0.06]">
+              <Search className="h-4 w-4 text-fg-dim" aria-hidden />
             </div>
+            <p className="text-xs text-fg-muted">
+              No matches for{' '}
+              <span className="font-medium text-fg-primary">"{query}"</span>
+            </p>
+            <p className="text-2xs text-fg-dim">Try a different spelling or a broader term.</p>
           </div>
         )}
       </div>
@@ -362,9 +369,13 @@ export function SearchSuggestions({
       {/* Footer hint — only when we have a non-empty query so the bar
           doesn't add visual noise when the user just opens the input. */}
       {query.trim().length > 0 && (
-        <div className="border-t border-white/5 bg-bg-deep/40 px-4 py-2 text-2xs text-fg-dim">
-          Press <kbd className="font-mono text-fg-muted">↵</kbd> to search for{' '}
-          <span className="font-medium text-fg-primary">“{query}”</span>
+        <div className="border-t border-white/[0.08] bg-bg-deep px-4 py-2 text-2xs text-fg-dim">
+          Press{' '}
+          <kbd className="rounded border border-white/[0.12] bg-white/[0.06] px-1.5 py-0.5 font-mono text-[10px] text-fg-primary">
+            ↵
+          </kbd>{' '}
+          to search for{' '}
+          <span className="font-medium text-fg-primary">"{query}"</span>
         </div>
       )}
     </div>
@@ -383,7 +394,7 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <div className="border-t border-white/5 first:border-t-0">
+    <div className="border-t border-white/[0.10] first:border-t-0">
       <div className="flex items-center gap-1.5 px-4 py-1.5 text-2xs font-medium uppercase tracking-widest text-fg-dim">
         <span aria-hidden className="text-fg-muted">{icon}</span>
         {title}
@@ -425,12 +436,18 @@ function EntityButton({
       role="option"
       aria-selected={highlighted}
       type="button"
+      tabIndex={-1}
       onMouseEnter={() => onHover(id)}
       onClick={onActivate}
       className={cn(
-        'flex w-full items-center gap-2.5 border-b border-white/5 px-4 py-2.5 text-left text-xs transition-colors duration-micro',
-        'border-l-2 border-l-transparent',
-        highlighted && (tone === 'violet' ? 'bg-violet/8' : 'bg-amber/8'),
+        'flex w-full cursor-pointer items-center gap-2.5 border-b border-white/[0.08] px-4 py-2.5 text-left text-xs transition-none',
+        'border-l-2',
+        'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/[0.20]',
+        highlighted
+          ? tone === 'violet'
+            ? 'bg-violet/[0.12] border-l-violet'
+            : 'bg-amber/[0.12] border-l-amber'
+          : 'border-l-transparent hover:bg-white/[0.08]',
       )}
     >
       <span
@@ -472,11 +489,16 @@ function EventRow({
         role="option"
         aria-selected={highlighted}
         type="button"
+        tabIndex={-1}
         onMouseEnter={() => onHover(id)}
         onClick={onActivate}
         className={cn(
-          'flex w-full items-center gap-3 px-4 py-2 text-left transition-colors duration-micro',
-          highlighted ? 'bg-accent/8' : 'hover:bg-bg-elevated/40',
+          'flex w-full cursor-pointer items-center gap-3 px-4 py-2.5 text-left transition-none',
+          'border-l-2',
+          'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/[0.20]',
+          highlighted
+            ? 'bg-accent/[0.12] border-l-accent'
+            : 'border-l-transparent hover:bg-white/[0.08]',
         )}
       >
         <Thumb url={row.image_url} fallback={row.title} tone={tone} kind="event" />
@@ -516,11 +538,16 @@ function ArtistRow({
         role="option"
         aria-selected={highlighted}
         type="button"
+        tabIndex={-1}
         onMouseEnter={() => onHover(id)}
         onClick={onActivate}
         className={cn(
-          'flex w-full items-center gap-3 px-4 py-2 text-left transition-colors duration-micro',
-          highlighted ? 'bg-violet/8' : 'hover:bg-bg-elevated/40',
+          'flex w-full cursor-pointer items-center gap-3 px-4 py-2.5 text-left transition-none',
+          'border-l-2',
+          'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/[0.20]',
+          highlighted
+            ? 'bg-violet/[0.12] border-l-violet'
+            : 'border-l-transparent hover:bg-white/[0.08]',
         )}
       >
         <Thumb
@@ -559,11 +586,16 @@ function VenueRow({
         role="option"
         aria-selected={highlighted}
         type="button"
+        tabIndex={-1}
         onMouseEnter={() => onHover(id)}
         onClick={onActivate}
         className={cn(
-          'flex w-full items-center gap-3 px-4 py-2 text-left transition-colors duration-micro',
-          highlighted ? 'bg-amber/8' : 'hover:bg-bg-elevated/40',
+          'flex w-full cursor-pointer items-center gap-3 px-4 py-2.5 text-left transition-none',
+          'border-l-2',
+          'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/[0.20]',
+          highlighted
+            ? 'bg-amber/[0.12] border-l-amber'
+            : 'border-l-transparent hover:bg-white/[0.08]',
         )}
       >
         <Thumb
@@ -604,7 +636,7 @@ function Thumb({
   return (
     <div
       className={cn(
-        'flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden border',
+        'flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden border border-white/[0.12]',
         shape,
         !url && AVATAR_BG[tone],
         'font-display text-[11px] font-semibold',
