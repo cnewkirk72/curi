@@ -13,10 +13,12 @@ import { BottomNav } from '@/components/bottom-nav';
 import { FilterBar } from '@/components/filter-bar';
 import { DesktopTopNav } from '@/components/desktop/desktop-top-nav';
 import { DesktopSidebarFilters } from '@/components/desktop/desktop-sidebar-filters';
+import { DesktopActiveSearchChip } from '@/components/desktop/desktop-active-search-chip';
 import { InfiniteFeed } from '@/components/infinite-feed';
 import { getUpcomingEvents } from '@/lib/events';
 import { getSavedEventIds } from '@/lib/saves';
 import { getUserPrefs } from '@/lib/preferences';
+import { getActiveSearchLabels } from '@/lib/active-search-labels';
 import { createClient } from '@/lib/supabase/server';
 import { cn } from '@/lib/utils';
 import {
@@ -71,13 +73,19 @@ export default async function HomePage({
   // the desktop sidebar (RLS returns DEFAULT_PREFS for anon
   // viewers, harmless).
   const supabase = createClient();
+  // Phase 6.3 — getActiveSearchLabels resolves `?artist=<slug>` and
+  // `?venue=<slug>` to display names. Both lookups hit unique-indexed
+  // columns and run inside the helper's own Promise.all, so adding it
+  // here costs one round-trip in parallel with the rest of the page
+  // load. Returns nulls for unresolvable slugs (chip won't render).
   const [events, savedIds, prefs, {
     data: { user },
-  }] = await Promise.all([
+  }, searchLabels] = await Promise.all([
     getUpcomingEvents({ limit: INITIAL_PAGE_SIZE, filters }),
     getSavedEventIds(),
     getUserPrefs(),
     supabase.auth.getUser(),
+    getActiveSearchLabels(filters.artist, filters.venue),
   ]);
 
   const signedIn = !!user;
@@ -159,9 +167,25 @@ export default async function HomePage({
             </h2>
           </section>
 
+          {/* Phase 6.3 — desktop search chips sit between the eyebrow
+              and the filter-bar/feed so a logged-in user can see (and
+              dismiss) the active artist/venue scope without scanning
+              the sidebar. Renders nothing when no search filter is on,
+              so the layout collapses cleanly. */}
+          <div className="hidden lg:block">
+            <DesktopActiveSearchChip
+              artistLabel={searchLabels.artist?.name ?? null}
+              venueLabel={searchLabels.venue?.name ?? null}
+            />
+          </div>
+
           {/* Mobile filter-bar — hidden at lg+ (sidebar takes over). */}
           <div className="relative mb-8 lg:hidden">
-            <FilterBar userPrefs={sidebarPrefs} />
+            <FilterBar
+              userPrefs={sidebarPrefs}
+              artistLabel={searchLabels.artist?.name ?? null}
+              venueLabel={searchLabels.venue?.name ?? null}
+            />
           </div>
 
           {events.length === 0 ? (
