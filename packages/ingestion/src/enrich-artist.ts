@@ -127,6 +127,51 @@ function asOne<T>(v: T | T[] | null | undefined): T | null {
   return v;
 }
 
+// ── Event-title detection ────────────────────────────────────────────
+//
+// Scraper title-parsers occasionally land event/party titles into the
+// artists table (e.g. "The 2016 Party: Party like it's 2016", "DJ X
+// Presents Future Funk Night"). MusicBrainz fuzzy-tagging can attach
+// plausible-looking tags to these phantom rows, so they slip through
+// every downstream filter that goes "has mb_tags ⇒ legit artist."
+//
+// We catch them with a name-shape heuristic and skip them at:
+//   1. The cohort loaders (backfill-run + post-scrape-enrich) — saves
+//      the Spotify / LLM / Firecrawl spend before processArtist runs.
+//   2. processArtist itself — defensive backstop in case a future
+//      caller forgets to pre-filter.
+//
+// Patterns flagged:
+//   - Colon followed by 3+ tokens: "The 2016 Party: Party like it's 2016"
+//   - "Presents" anywhere: "DJ X Presents Future Funk"
+//   - "The X Party" shape: "The Disco Party"
+//
+// We deliberately avoid filtering on "vs." / "feat." since legit
+// collabs use those (e.g. "Honey Dijon b2b The Blessed Madonna").
+//
+// This is a triage filter, not a permanent classification — the right
+// long-term fix is to (a) tighten scraper title-parsers and (b) add a
+// `kind` column to artists with values 'artist' | 'event' | 'unknown'.
+export function isLikelyEventTitle(name: string): {
+  flagged: boolean;
+  reason?: string;
+} {
+  const n = name.trim();
+  // Colon + 3+ tokens of tail: classic event-subtitle shape.
+  if (/^[^:]+:\s+\S+(\s+\S+){2,}/.test(n)) {
+    return { flagged: true, reason: 'colon-with-multi-token-tail' };
+  }
+  // "Presents" anywhere — strong event-promotion signal.
+  if (/\bpresents\b/i.test(n)) {
+    return { flagged: true, reason: 'contains-presents' };
+  }
+  // "The X Party" — Christian's specific case.
+  if (/^the\s+.+\bparty\b/i.test(n)) {
+    return { flagged: true, reason: 'the-x-party' };
+  }
+  return { flagged: false };
+}
+
 // ── Event context loader ──────────────────────────────────────────────
 
 /**
@@ -463,6 +508,22 @@ export async function processArtist(
   const skipPopularity = opts.skipPopularity ?? false;
   const startedAt = new Date().toISOString();
   const start = Date.now();
+
+  // Defensive backstop: skip phantom-artist rows whose names look like
+  // event/party titles. Cohort loaders also pre-filter, but we re-check
+  // here so any new caller (one-off scripts, future cron variants) gets
+  // the protection for free.
+  const eventCheck = isLikelyEventTitle(artist.name);
+  if (eventCheck.flagged) {
+    return {
+      id: artist.id,
+      name: artist.name,
+      slug: artist.slug,
+      startedAt,
+      elapsedMs: Date.now() - start,
+      error: `skipped: looks like event title (${eventCheck.reason})`,
+    };
+  }
 
   try {
     // Spotify first — cheap, fast, gives the LLM prior evidence.

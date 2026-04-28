@@ -49,6 +49,7 @@ import * as path from 'node:path';
 import {
   type Artist,
   type ArtistLog,
+  isLikelyEventTitle,
   loadEventContext,
   PAGE_SIZE,
   processArtist,
@@ -131,11 +132,40 @@ async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
   console.log('Loading artists…');
   const allArtists = await loadArtistsPaginated(args.force);
-  const artists = args.limit ? allArtists.slice(0, args.limit) : allArtists;
+
+  // Triage filter: skip phantom-artist rows whose names look like event
+  // or party titles (scraper title-parser leakage). See
+  // isLikelyEventTitle() in enrich-artist.ts for the patterns.
+  const skipped: Array<{ name: string; reason: string }> = [];
+  const eligible: Artist[] = [];
+  for (const a of allArtists) {
+    const check = isLikelyEventTitle(a.name);
+    if (check.flagged) {
+      skipped.push({ name: a.name, reason: check.reason ?? 'unknown' });
+    } else {
+      eligible.push(a);
+    }
+  }
+  if (skipped.length > 0) {
+    console.log(
+      `Filtered ${skipped.length} likely event-title row(s) from cohort:`,
+    );
+    for (const s of skipped.slice(0, 20)) {
+      console.log(`  - ${s.name}  [${s.reason}]`);
+    }
+    if (skipped.length > 20) {
+      console.log(`  …and ${skipped.length - 20} more`);
+    }
+  }
+
+  const artists = args.limit ? eligible.slice(0, args.limit) : eligible;
   console.log(
-    `Loaded ${allArtists.length} artist${
+    `Loaded ${eligible.length} artist${
       args.force ? 's total' : 's needing full enrichment'
-    }${args.limit ? ` (limited to ${args.limit})` : ''}.`,
+    }${args.limit ? ` (limited to ${args.limit})` : ''}` +
+      (skipped.length > 0
+        ? ` (after filtering ${skipped.length} event titles).`
+        : '.'),
   );
   if (artists.length === 0) {
     console.log('Nothing to do. Exiting.');
