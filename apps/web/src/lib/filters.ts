@@ -83,6 +83,24 @@ export type FilterState = {
    */
   subgenres: string[];
   q: string;
+  /**
+   * Phase 6.3 v2 — single artist scope filter, surfaced when the user
+   * taps a "Show events with [Artist]" entity button in the search
+   * dropdown. Stored as `artists.slug` (already unique from migration
+   * 0001). Lookup at query time joins through `event_artists` →
+   * `artists.slug = state.artist`. Renders as a violet active chip.
+   *
+   * Single-value (string | null) rather than an array because the UX
+   * intent is a focus/scope filter — "show me Courtesy's events" is
+   * unambiguous; "Courtesy OR Surusinghe" doesn't have a natural
+   * surface in the current dropdown spec.
+   */
+  artist: string | null;
+  /**
+   * Phase 6.3 v2 — single venue scope filter, parallel to `artist`.
+   * Stored as `venues.slug`. Renders as an amber active chip.
+   */
+  venue: string | null;
 };
 
 export const EMPTY_FILTERS: FilterState = {
@@ -94,6 +112,8 @@ export const EMPTY_FILTERS: FilterState = {
   setting: [],
   subgenres: [],
   q: '',
+  artist: null,
+  venue: null,
 };
 
 // ── URL ↔ FilterState ─────────────────────────────────────────
@@ -198,7 +218,20 @@ export function parseFilters(sp: ParamsLike): FilterState {
       .map((s) => decodeURIComponent(s).trim())
       .filter(Boolean),
     q: (sp.get('q') ?? '').trim().slice(0, 200),
+    // Slug params from search dropdown entity-button taps. Lowercased
+    // for consistency with how slugs are stored, length-capped so a
+    // hand-crafted URL can't blow up the query, and rejected if they
+    // contain anything outside the safe `[a-z0-9-]` slug alphabet.
+    artist: parseSlugParam(sp.get('artist')),
+    venue: parseSlugParam(sp.get('venue')),
   };
+}
+
+const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,79}$/;
+function parseSlugParam(v: string | null): string | null {
+  if (!v) return null;
+  const normalized = v.trim().toLowerCase();
+  return SLUG_RE.test(normalized) ? normalized : null;
 }
 
 /**
@@ -220,6 +253,8 @@ export function serializeFilters(state: FilterState): string {
   if (state.setting.length) params.set('setting', state.setting.join(','));
   if (state.subgenres.length) params.set('subgenres', state.subgenres.join(','));
   if (state.q) params.set('q', state.q);
+  if (state.artist) params.set('artist', state.artist);
+  if (state.venue) params.set('venue', state.venue);
   return params.toString();
 }
 
@@ -230,7 +265,9 @@ export function hasActiveFilters(state: FilterState): boolean {
     state.vibes.length > 0 ||
     state.setting.length > 0 ||
     state.subgenres.length > 0 ||
-    state.q.length > 0
+    state.q.length > 0 ||
+    state.artist !== null ||
+    state.venue !== null
   );
 }
 
@@ -240,7 +277,9 @@ export function activeFilterCount(state: FilterState): number {
     state.genres.length +
     state.vibes.length +
     state.setting.length +
-    state.subgenres.length
+    state.subgenres.length +
+    (state.artist ? 1 : 0) +
+    (state.venue ? 1 : 0)
   );
 }
 

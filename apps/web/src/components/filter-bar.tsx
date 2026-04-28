@@ -3,11 +3,20 @@
 // Filter entry point on the home feed.
 //
 // Anatomy:
-//   "Filter" pill button  — opens the sheet; shows a cyan count badge
-//                           when filters are active
-//   Active-filter chips   — quick visual summary of what's on; tapping
-//                           any chip removes it (1-tap reset by facet)
-//   "Clear" text button   — removes all filters in one tap
+//   "Filter" pill button         — opens the sheet; cyan count badge
+//                                  when any filters are active
+//   Active-filter chips          — quick visual summary of what's on;
+//                                  tapping any chip removes it
+//                                  (1-tap reset by facet)
+//     Generic facets (cyan)      — when, genres, subgenres, vibes,
+//                                  settings.
+//     Artist (violet, Phase 6.3) — set via the search dropdown's
+//                                  "Show events with [X]" entity
+//                                  button. Slug → display name is
+//                                  resolved server-side and threaded
+//                                  in via `artistLabel`.
+//     Venue (amber, Phase 6.3)   — same pattern as artist.
+//   "Clear" text button          — removes all filters in one tap
 //
 // The bar reads its state from `useSearchParams` on every render, so
 // it stays in sync when the sheet commits new filters via router.push
@@ -15,7 +24,7 @@
 
 import { useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { SlidersHorizontal, X } from 'lucide-react';
+import { SlidersHorizontal } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
   activeFilterCount,
@@ -32,14 +41,26 @@ import {
   type FilterState,
 } from '@/lib/filters';
 import { FilterSheet } from '@/components/filter-sheet';
+import { ActiveChip } from '@/components/active-chip';
 
 export function FilterBar({
   userPrefs,
+  artistLabel,
+  venueLabel,
 }: {
   /** Phase 3.18 — onboarding-time prefs threaded through to the
    *  FilterSheet so the genre/vibe rows render in pref-aware order
    *  on mobile. Pass undefined for anon viewers. */
   userPrefs?: { genres: string[]; vibes: string[] };
+  /** Phase 6.3 — resolved display name for `?artist=<slug>`. The URL
+   *  has only the slug, but the chip needs the human-readable name
+   *  ("Courtesy" not "courtesy"). Resolved server-side via
+   *  `getActiveSearchLabels` and passed in. NULL when the URL has no
+   *  artist filter or the slug is unresolvable (the feed already
+   *  short-circuits to empty in that case). */
+  artistLabel?: string | null;
+  /** Phase 6.3 — same as artistLabel but for venues. */
+  venueLabel?: string | null;
 } = {}) {
   const router = useRouter();
   const pathname = usePathname();
@@ -80,6 +101,12 @@ export function FilterBar({
   function removeSubgenre(slug: string) {
     commit({ ...filters, subgenres: filters.subgenres.filter((s) => s !== slug) });
   }
+  function removeArtist() {
+    commit({ ...filters, artist: null });
+  }
+  function removeVenue() {
+    commit({ ...filters, venue: null });
+  }
   function clearAll() {
     commit({
       when: 'all',
@@ -90,6 +117,8 @@ export function FilterBar({
       setting: [],
       subgenres: [],
       q: '',
+      artist: null,
+      venue: null,
     });
   }
 
@@ -122,9 +151,21 @@ export function FilterBar({
           )}
         </button>
 
-        {/* Active-filter chips. Order: when → genres → subgenres → vibes.
-            Subgenres follow their parent genre in visual order to
-            keep the chip row readable. */}
+        {/* Active-filter chips. Visual order:
+              artist → venue → when → genres → subgenres → vibes → setting
+            Search-driven chips (artist / venue) render first because
+            they describe the strongest scope narrowing — the user
+            tapped "events with X" and that intent dominates the row. */}
+        {filters.artist && artistLabel && (
+          <ActiveChip tone="violet" onRemove={removeArtist}>
+            {artistLabel}
+          </ActiveChip>
+        )}
+        {filters.venue && venueLabel && (
+          <ActiveChip tone="amber" onRemove={removeVenue}>
+            {venueLabel}
+          </ActiveChip>
+        )}
         {filters.when !== 'all' && (
           <ActiveChip onRemove={clearWhen}>
             {/* Custom range renders the formatted "Apr 25 – Apr 27"
@@ -172,27 +213,5 @@ export function FilterBar({
         userPrefs={userPrefs}
       />
     </div>
-  );
-}
-
-function ActiveChip({
-  children,
-  onRemove,
-}: {
-  children: React.ReactNode;
-  onRemove: () => void;
-}) {
-  return (
-    <span className="inline-flex items-center gap-1.5 rounded-pill border border-accent/30 bg-accent-chip py-1 pl-3 pr-1.5 text-xs font-medium text-accent">
-      {children}
-      <button
-        type="button"
-        onClick={onRemove}
-        aria-label={`Remove ${String(children)}`}
-        className="inline-flex h-4 w-4 items-center justify-center rounded-pill hover:bg-accent/10"
-      >
-        <X className="h-3 w-3" />
-      </button>
-    </span>
   );
 }

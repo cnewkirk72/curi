@@ -502,6 +502,23 @@ export type Database = {
           title: string
         }[]
       }
+      // Phase 6.3 v2 — see supabase/migrations/0021_search_suggestions.sql.
+      // Hand-edited rather than regenerated so this lands in the same
+      // commit as the migration. Re-run `supabase gen types typescript`
+      // after the next migration to stay aligned.
+      search_suggestions: {
+        Args: { q: string }
+        Returns: {
+          kind: string
+          id: string
+          slug: string | null
+          title: string
+          subtitle: string | null
+          image_url: string | null
+          score: number
+          starts_at: string | null
+        }[]
+      }
     }
     Enums: {
       [_ in never]: never

@@ -273,6 +273,62 @@ export async function getUpcomingEvents({
     query = query.overlaps('setting', filters.setting);
   }
 
+  // Phase 6.3 v2 — single-artist scope filter from the search dropdown's
+  // "Show events with [Artist]" entity button. We resolve `artists.slug`
+  // → artist_id and intersect with `event_artists.artist_id` exactly
+  // like the subgenre path below. The slug uniqueness from migration
+  // 0001 means this is always 0 or 1 row; if the slug doesn't resolve,
+  // we short-circuit to an empty feed (rather than a no-op) so the
+  // user gets honest "no results" rather than the unfiltered listing.
+  if (filters.artist) {
+    const { data: artistRow, error: artistErr } = await supabase
+      .from('artists')
+      .select('id')
+      .eq('slug', filters.artist)
+      .maybeSingle();
+
+    if (artistErr) {
+      // eslint-disable-next-line no-console
+      console.error('[events] artist slug lookup failed:', artistErr.message);
+      return [];
+    }
+    if (!artistRow) return [];
+
+    const { data: linkRows, error: linkErr } = await supabase
+      .from('event_artists')
+      .select('event_id')
+      .eq('artist_id', (artistRow as { id: string }).id);
+
+    if (linkErr) {
+      // eslint-disable-next-line no-console
+      console.error('[events] artist event-link lookup failed:', linkErr.message);
+      return [];
+    }
+    const eventIds = Array.from(
+      new Set((linkRows ?? []).map((r) => (r as { event_id: string }).event_id)),
+    );
+    if (eventIds.length === 0) return [];
+    query = query.in('id', eventIds);
+  }
+
+  // Phase 6.3 v2 — single-venue scope filter. Simpler than artist
+  // because events.venue_id is a direct FK; one query, no link table.
+  if (filters.venue) {
+    const { data: venueRow, error: venueErr } = await supabase
+      .from('venues')
+      .select('id')
+      .eq('slug', filters.venue)
+      .maybeSingle();
+
+    if (venueErr) {
+      // eslint-disable-next-line no-console
+      console.error('[events] venue slug lookup failed:', venueErr.message);
+      return [];
+    }
+    if (!venueRow) return [];
+    query = query.eq('venue_id', (venueRow as { id: string }).id);
+  }
+
   // Subgenre filter. Events don't carry subgenres directly — they
   // inherit them through their artist lineup via `artists.subgenres`.
   // We resolve that in two lightweight queries rather than an RPC
