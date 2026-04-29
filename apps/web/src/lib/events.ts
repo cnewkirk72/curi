@@ -17,12 +17,6 @@ import {
 /**
  * A single lineup entry. Shared between the feed card (which truncates
  * to 3) and the detail screen (which shows the full list).
- *
- * `image_url`, `spotify_url`, and `spotify_popularity` come from the
- * Phase 4f artist enrichment pass (Spotify CDN image, artist profile
- * URL, 0–100 popularity score). They're nullable because the backfill
- * lands row-by-row and some artists won't have a Spotify match at all —
- * the UI falls back to initials + tinted circles in that case.
  */
 export type LineupArtist = {
   name: string;
@@ -31,30 +25,22 @@ export type LineupArtist = {
   image_url: string | null;
   spotify_url: string | null;
   spotify_popularity: number | null;
-  // Additional enrichment signals from migration 0010. We fetch these
-  // so `enrichmentScore` (in lib/enrichment.ts) can compute a hybrid
-  // "how well do we know this event's lineup" metric — they're not
-  // rendered on the card directly, but drive the default feed sort
-  // within each day group.
   soundcloud_url: string | null;
   soundcloud_followers: number | null;
   bandcamp_url: string | null;
   bandcamp_followers: number | null;
   // Phase 5.6 — normalized lowercased SoundCloud profile slug from
-  // migration 0022. Join key for the user's follow-graph in
-  // user_soundcloud_follows; consumed by the FOLLOWED_ARTIST_BOOST
-  // path in enrichmentScore() and by the "You follow [Artist]" badge
-  // on EventCard. NULL when the artist has no soundcloud_url, or
-  // when the URL didn't match the strict profile-URL regex at
-  // backfill time (see migration 0022 header for the 8-row miss list).
+  // migration 0022. Join key for user_soundcloud_follows.
   soundcloud_username: string | null;
+  // Phase 5.7 — Spotify artist ID (the base62 string in
+  // open.spotify.com/artist/{id} URLs). Already populated for every
+  // artist with a spotify_url from the Phase 4 enrichment pass. Join
+  // key for the user's Spotify follow graph in user_spotify_follows;
+  // consumed by the SPOTIFY tier in feedScore() and by the
+  // FollowDotStack badge on EventCard / LineupList.
+  spotify_id: string | null;
 };
 
-/**
- * Shape returned by `getUpcomingEvents`. This is the projection we want
- * to display in the home feed — venue and lineup are joined inline so
- * a single round-trip renders the card.
- */
 export type FeedEvent = {
   id: string;
   title: string;
@@ -63,10 +49,6 @@ export type FeedEvent = {
   image_url: string | null;
   genres: string[];
   vibes: string[];
-  /** Phase 3.18 — derived event-context tags (warehouse, basement,
-   *  daytime, peak-time, late-night, outdoor, underground). Distinct
-   *  from `vibes` (artist-mood). Backed by events.setting (migration
-   *  0017), populated by the SQL derivation in migration 0018. */
   setting: string[];
   price_min: number | null;
   price_max: number | null;
@@ -75,21 +57,11 @@ export type FeedEvent = {
     name: string;
     neighborhood: string | null;
     slug: string;
-    // Venue hero photo, used by the card's fallback chain when the
-    // event has no image_url and no lineup artist has a Spotify
-    // avatar. See `event-card.tsx` → `resolveHero`. Added in
-    // migration 0016; nullable until the per-venue backfill lands.
     image_url: string | null;
   } | null;
   lineup: LineupArtist[];
 };
 
-/**
- * Richer projection for the single-event detail screen. Adds
- * `description` and the venue's `lat`/`lng`/`website` (used by the
- * Location card's "Open in Maps" CTA and the venue link). Lineup is
- * the full artist list — not truncated.
- */
 export type DetailEvent = {
   id: string;
   title: string;
@@ -99,7 +71,6 @@ export type DetailEvent = {
   description: string | null;
   genres: string[];
   vibes: string[];
-  /** Phase 3.18 — see FeedEvent.setting. */
   setting: string[];
   price_min: number | null;
   price_max: number | null;
@@ -116,13 +87,6 @@ export type DetailEvent = {
   lineup: LineupArtist[];
 };
 
-/**
- * Raw row shape from the Supabase select string below. We type it
- * explicitly because Supabase's generated types infer joined rows as
- * `never` in the one-to-many direction (event_artists) — a known
- * limitation of the PostgREST type inference. This type mirrors the
- * select string exactly; if the select changes, update this in sync.
- */
 type EventRow = {
   id: string;
   title: string;
@@ -155,6 +119,7 @@ type EventRow = {
           soundcloud_url: string | null;
           soundcloud_followers: number | null;
           soundcloud_username: string | null;
+          spotify_id: string | null;
           bandcamp_url: string | null;
           bandcamp_followers: number | null;
         } | null;
@@ -162,30 +127,11 @@ type EventRow = {
     | null;
 };
 
-/**
- * Keyset cursor for infinite-scroll pagination. We order the feed by
- * `(starts_at ASC, id ASC)`; to continue past an event, send its
- * `starts_at` and `id` — we'll return rows strictly "after" it in the
- * composite ordering. Keyset (vs. OFFSET) survives mid-scroll ingests
- * without double-rendering a row or skipping one, which matters
- * because scrapers run nightly and can land new events while a user
- * is scrolling.
- */
 export type FeedCursor = {
-  /** ISO UTC string — the `starts_at` of the last event already shown. */
   afterStartsAt: string;
-  /** UUID — the `id` of the last event already shown. */
   afterId: string;
 };
 
-/**
- * Fetch upcoming NYC events, ordered by start time.
- *
- * Relies on the `events_starts_at_idx` + `events_city_starts_idx` indexes
- * for the sort, and on the `events_genres_gin` / `events_vibes_gin`
- * GIN indexes for the array-overlap filters — don't add filters that
- * would force a seq scan without matching indexes.
- */
 export async function getUpcomingEvents({
   limit = 80,
   filters = EMPTY_FILTERS,
@@ -196,8 +142,6 @@ export async function getUpcomingEvents({
   cursor?: FeedCursor;
 } = {}): Promise<FeedEvent[]> {
   const supabase = createClient();
-  // Pass the full FilterState so `dateWindowFor` can honor custom
-  // ranges (when='custom' reads date_from / date_to off the state).
   const { startIso, endIso } = dateWindowFor(filters);
 
   let query = supabase
@@ -234,6 +178,7 @@ export async function getUpcomingEvents({
           soundcloud_url,
           soundcloud_followers,
           soundcloud_username,
+          spotify_id,
           bandcamp_url,
           bandcamp_followers
         )
@@ -243,33 +188,17 @@ export async function getUpcomingEvents({
     .eq('city', 'NYC')
     .gte('starts_at', startIso);
 
-  // Apply the upper bound only when the date filter sets one (`all`
-  // has `endIso === null`, i.e. no cap).
   if (endIso) {
     query = query.lt('starts_at', endIso);
   }
 
-  // Keyset pagination. Continue strictly after the last shown event
-  // in the composite `(starts_at, id)` ordering:
-  //   starts_at > after.starts_at
-  //   OR (starts_at = after.starts_at AND id > after.id)
-  //
-  // PostgREST `.or(...)` builds an OR group; the inner `and(...)` is
-  // nested and combined implicitly with the rest of the query via AND,
-  // so the effective predicate is `(window bounds) AND (keyset)` —
-  // exactly what we want.
   if (cursor) {
     query = query.or(
       `starts_at.gt.${cursor.afterStartsAt},and(starts_at.eq.${cursor.afterStartsAt},id.gt.${cursor.afterId})`,
     );
   }
 
-  // Multi-select genres / vibes / setting → OR semantics ("techno OR
-  // house"), which maps cleanly to PostgreSQL's `&&` array-overlap
-  // operator and our GIN indexes (events_genres_gin, events_vibes_gin,
-  // events_setting_gin from migration 0017).
   if (filters.q) {
-    // Escape LIKE metacharacters so a bare "%" doesn't match everything.
     const escaped = filters.q.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
     query = query.ilike('title', `%${escaped}%`);
   }
@@ -283,13 +212,6 @@ export async function getUpcomingEvents({
     query = query.overlaps('setting', filters.setting);
   }
 
-  // Phase 6.3 v2 — single-artist scope filter from the search dropdown's
-  // "Show events with [Artist]" entity button. We resolve `artists.slug`
-  // → artist_id and intersect with `event_artists.artist_id` exactly
-  // like the subgenre path below. The slug uniqueness from migration
-  // 0001 means this is always 0 or 1 row; if the slug doesn't resolve,
-  // we short-circuit to an empty feed (rather than a no-op) so the
-  // user gets honest "no results" rather than the unfiltered listing.
   if (filters.artist) {
     const { data: artistRow, error: artistErr } = await supabase
       .from('artists')
@@ -298,7 +220,6 @@ export async function getUpcomingEvents({
       .maybeSingle();
 
     if (artistErr) {
-      // eslint-disable-next-line no-console
       console.error('[events] artist slug lookup failed:', artistErr.message);
       return [];
     }
@@ -310,7 +231,6 @@ export async function getUpcomingEvents({
       .eq('artist_id', (artistRow as { id: string }).id);
 
     if (linkErr) {
-      // eslint-disable-next-line no-console
       console.error('[events] artist event-link lookup failed:', linkErr.message);
       return [];
     }
@@ -321,8 +241,6 @@ export async function getUpcomingEvents({
     query = query.in('id', eventIds);
   }
 
-  // Phase 6.3 v2 — single-venue scope filter. Simpler than artist
-  // because events.venue_id is a direct FK; one query, no link table.
   if (filters.venue) {
     const { data: venueRow, error: venueErr } = await supabase
       .from('venues')
@@ -331,7 +249,6 @@ export async function getUpcomingEvents({
       .maybeSingle();
 
     if (venueErr) {
-      // eslint-disable-next-line no-console
       console.error('[events] venue slug lookup failed:', venueErr.message);
       return [];
     }
@@ -339,20 +256,6 @@ export async function getUpcomingEvents({
     query = query.eq('venue_id', (venueRow as { id: string }).id);
   }
 
-  // Subgenre filter. Events don't carry subgenres directly — they
-  // inherit them through their artist lineup via `artists.subgenres`.
-  // We resolve that in two lightweight queries rather than an RPC
-  // or a joined embedded filter:
-  //
-  //   (1) find artist_ids whose subgenres[] overlaps the filter
-  //   (2) find event_ids in event_artists where artist_id ∈ (1)
-  //   (3) constrain the main query with `.in('id', eventIds)`
-  //
-  // Costs an extra round-trip but keeps the main feed query simple,
-  // and both helper queries hit the `artists_subgenres_gin` index
-  // from migration 0003. If this becomes hot, the next step is a
-  // trigger-maintained `events.subgenres text[]` column + GIN index,
-  // collapsing back to a single query.
   if (filters.subgenres.length > 0) {
     const { data: artistRows, error: artistErr } = await supabase
       .from('artists')
@@ -360,11 +263,7 @@ export async function getUpcomingEvents({
       .overlaps('subgenres', filters.subgenres);
 
     if (artistErr) {
-      // eslint-disable-next-line no-console
-      console.error(
-        '[events] subgenre artist lookup failed:',
-        artistErr.message,
-      );
+      console.error('[events] subgenre artist lookup failed:', artistErr.message);
       return [];
     }
     const artistIds = (artistRows ?? []).map(
@@ -378,11 +277,7 @@ export async function getUpcomingEvents({
       .in('artist_id', artistIds);
 
     if (linkErr) {
-      // eslint-disable-next-line no-console
-      console.error(
-        '[events] subgenre event-artist lookup failed:',
-        linkErr.message,
-      );
+      console.error('[events] subgenre event-artist lookup failed:', linkErr.message);
       return [];
     }
     const eventIds = Array.from(
@@ -394,23 +289,16 @@ export async function getUpcomingEvents({
     query = query.in('id', eventIds);
   }
 
-  // Sort order must match the keyset cursor exactly — tiebreak on `id`
-  // so two events at the same `starts_at` always resolve in a stable,
-  // cursor-compatible order.
   const { data, error } = await query
     .order('starts_at', { ascending: true })
     .order('id', { ascending: true })
     .limit(limit);
 
   if (error) {
-    // Don't swallow — callers show an empty state, but the console
-    // noise during dev helps catch RLS/env drift early.
-    // eslint-disable-next-line no-console
     console.error('[events] getUpcomingEvents failed:', error.message);
     return [];
   }
 
-  // See EventRow above for why we cast rather than rely on inference.
   const rows = (data ?? []) as unknown as EventRow[];
 
   return rows.map((row) => ({
@@ -438,12 +326,6 @@ export async function getUpcomingEvents({
         name: ea.artist?.name ?? '',
         position: ea.position,
         is_headliner: ea.is_headliner,
-        // Avatar fallback chain: Spotify (62% coverage as of Apr 2026)
-        // → SoundCloud og:image → Bandcamp og:image → null (caller
-        // renders initials placeholder). Order matches popularity tier
-        // for the catalog: Spotify is the most authoritative source for
-        // artists who do match, then SC for the EDM-heavy long tail,
-        // then BC for the indie/experimental remainder.
         image_url:
           ea.artist?.spotify_image_url ??
           ea.artist?.soundcloud_image_url ??
@@ -454,6 +336,7 @@ export async function getUpcomingEvents({
         soundcloud_url: ea.artist?.soundcloud_url ?? null,
         soundcloud_followers: ea.artist?.soundcloud_followers ?? null,
         soundcloud_username: ea.artist?.soundcloud_username ?? null,
+        spotify_id: ea.artist?.spotify_id ?? null,
         bandcamp_url: ea.artist?.bandcamp_url ?? null,
         bandcamp_followers: ea.artist?.bandcamp_followers ?? null,
       }))
@@ -462,11 +345,6 @@ export async function getUpcomingEvents({
   }));
 }
 
-/**
- * Raw row shape for the single-event select used by `getEventById`.
- * Same reason as `EventRow` above — we hand-type because PostgREST
- * infers joined rows as `never`.
- */
 type EventDetailDbRow = {
   id: string;
   title: string;
@@ -505,6 +383,7 @@ type EventDetailDbRow = {
           soundcloud_url: string | null;
           soundcloud_followers: number | null;
           soundcloud_username: string | null;
+          spotify_id: string | null;
           bandcamp_url: string | null;
           bandcamp_followers: number | null;
         } | null;
@@ -512,16 +391,6 @@ type EventDetailDbRow = {
     | null;
 };
 
-/**
- * Fetch a single event by id for the detail screen. Returns null when
- * the event is missing (so the caller can `notFound()`) or when the
- * query errors out — we don't want a transient Supabase blip to 500
- * the page; better to render the 404.
- *
- * Pulls the same joined venue + event_artists projection as the feed
- * fetcher, plus `description` and the venue's `lat`/`lng`/`website`
- * which only the detail screen needs.
- */
 export async function getEventById(id: string): Promise<DetailEvent | null> {
   const supabase = createClient();
 
@@ -563,6 +432,7 @@ export async function getEventById(id: string): Promise<DetailEvent | null> {
           soundcloud_url,
           soundcloud_followers,
           soundcloud_username,
+          spotify_id,
           bandcamp_url,
           bandcamp_followers
         )
@@ -573,7 +443,6 @@ export async function getEventById(id: string): Promise<DetailEvent | null> {
     .maybeSingle();
 
   if (error) {
-    // eslint-disable-next-line no-console
     console.error('[events] getEventById failed:', error.message);
     return null;
   }
@@ -610,8 +479,6 @@ export async function getEventById(id: string): Promise<DetailEvent | null> {
         name: ea.artist?.name ?? '',
         position: ea.position,
         is_headliner: ea.is_headliner,
-        // Same fallback chain as the feed projection — see comment in
-        // getUpcomingEvents above.
         image_url:
           ea.artist?.spotify_image_url ??
           ea.artist?.soundcloud_image_url ??
@@ -622,15 +489,12 @@ export async function getEventById(id: string): Promise<DetailEvent | null> {
         soundcloud_url: ea.artist?.soundcloud_url ?? null,
         soundcloud_followers: ea.artist?.soundcloud_followers ?? null,
         soundcloud_username: ea.artist?.soundcloud_username ?? null,
+        spotify_id: ea.artist?.spotify_id ?? null,
         bandcamp_url: ea.artist?.bandcamp_url ?? null,
         bandcamp_followers: ea.artist?.bandcamp_followers ?? null,
       }))
       .filter((a) => a.name.length > 0)
       .sort((a, b) => {
-        // Headliners first within the same position, then by position.
-        // In practice ingestion sets position = 0/1/2/... with headliner
-        // on 0, so position sort is usually enough — but defend against
-        // scrapers that set is_headliner without adjusting position.
         if (a.is_headliner !== b.is_headliner) return a.is_headliner ? -1 : 1;
         return a.position - b.position;
       }),

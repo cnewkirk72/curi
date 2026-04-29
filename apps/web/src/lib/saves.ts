@@ -9,9 +9,6 @@
 import { createClient } from '@/lib/supabase/server';
 import type { FeedEvent } from '@/lib/events';
 
-// Row shape when we join user_saves → events → venues. Same
-// reason as EventRow in events.ts: PostgREST infers joined
-// rows as `never`, so we hand-type.
 type SavedRow = {
   event: {
     id: string;
@@ -43,6 +40,7 @@ type SavedRow = {
             soundcloud_url: string | null;
             soundcloud_followers: number | null;
             soundcloud_username: string | null;
+            spotify_id: string | null;
             bandcamp_url: string | null;
             bandcamp_followers: number | null;
           } | null;
@@ -51,15 +49,6 @@ type SavedRow = {
   } | null;
 };
 
-/**
- * Fetch the signed-in user's saved events as FeedEvent[], ordered
- * by event start time (so the Saved page reads like a mini-feed
- * of "what's coming up on your list").
- *
- * Returns [] for unauthenticated viewers — the caller is expected
- * to render a signed-out CTA separately, based on their own auth
- * check (we don't force that concern down into the fetcher).
- */
 export async function getSavedEvents(): Promise<FeedEvent[]> {
   const supabase = createClient();
 
@@ -96,6 +85,7 @@ export async function getSavedEvents(): Promise<FeedEvent[]> {
             soundcloud_url,
             soundcloud_followers,
             soundcloud_username,
+            spotify_id,
             bandcamp_url,
             bandcamp_followers
           )
@@ -103,13 +93,9 @@ export async function getSavedEvents(): Promise<FeedEvent[]> {
       )
       `,
     )
-    // Chronological by event time, not by save time. Users want
-    // "what's coming up next that I've saved," not "what did I
-    // bookmark most recently."
     .order('starts_at', { referencedTable: 'events', ascending: true });
 
   if (error) {
-    // eslint-disable-next-line no-console
     console.error('[saves] getSavedEvents failed:', error.message);
     return [];
   }
@@ -150,6 +136,7 @@ export async function getSavedEvents(): Promise<FeedEvent[]> {
           soundcloud_url: ea.artist?.soundcloud_url ?? null,
           soundcloud_followers: ea.artist?.soundcloud_followers ?? null,
           soundcloud_username: ea.artist?.soundcloud_username ?? null,
+          spotify_id: ea.artist?.spotify_id ?? null,
           bandcamp_url: ea.artist?.bandcamp_url ?? null,
           bandcamp_followers: ea.artist?.bandcamp_followers ?? null,
         }))
@@ -158,36 +145,18 @@ export async function getSavedEvents(): Promise<FeedEvent[]> {
     }));
 }
 
-/**
- * Fetch the set of event ids the signed-in user has saved.
- *
- * The feed uses this to render each card's bookmark in the right
- * initial state without firing N queries — we pull the whole id
- * set once per request, then pass it down as a Set for O(1)
- * lookups.
- *
- * Returns empty set for unauth viewers (RLS — see header).
- */
 export async function getSavedEventIds(): Promise<Set<string>> {
   const supabase = createClient();
   const { data, error } = await supabase.from('user_saves').select('event_id');
 
   if (error) {
-    // eslint-disable-next-line no-console
     console.error('[saves] getSavedEventIds failed:', error.message);
     return new Set();
   }
-  // Same ssr-0.5.1 inference quirk as save-actions.ts: the row type
-  // here resolves to `never` despite the generated Database type
-  // being correct. Cast via unknown to a minimal row shape.
   const rows = (data ?? []) as unknown as { event_id: string }[];
   return new Set(rows.map((r) => r.event_id));
 }
 
-/**
- * Count how many events the signed-in user has saved. Surfaced on
- * the Profile page as a stat, and cheap to query (count-only).
- */
 export async function getSaveCount(): Promise<number> {
   const supabase = createClient();
   const { count, error } = await supabase
@@ -195,18 +164,12 @@ export async function getSaveCount(): Promise<number> {
     .select('*', { count: 'exact', head: true });
 
   if (error) {
-    // eslint-disable-next-line no-console
     console.error('[saves] getSaveCount failed:', error.message);
     return 0;
   }
   return count ?? 0;
 }
 
-/**
- * Cheap boolean for the detail page: is *this* event saved?
- * Used instead of pulling the whole id set when we only need
- * one answer.
- */
 export async function isEventSaved(eventId: string): Promise<boolean> {
   const supabase = createClient();
   const { data, error } = await supabase
@@ -216,7 +179,6 @@ export async function isEventSaved(eventId: string): Promise<boolean> {
     .maybeSingle();
 
   if (error) {
-    // eslint-disable-next-line no-console
     console.error('[saves] isEventSaved failed:', error.message);
     return false;
   }
