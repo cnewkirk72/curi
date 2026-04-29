@@ -230,8 +230,61 @@ with zero changes to keyset cursor or server-side ordering.
   `<EventCard>` "you follow [Artist]" badge
 - 5.6.5 Background refresh: Sunday-night Railway cron + lazy
   invalidation hook on app open
+- 5.6.6 Feed-sort overhaul + candidate-pool fix — **shipped (2026-04-29)**
 
 Estimate: 5–7 days end-to-end, blocking on 6.3 shipping first.
+
+### 5.6.6 Feed-sort overhaul + candidate-pool fix — **shipped (2026-04-29)**
+
+After 5.6.4 shipped, a real-world test surfaced the architectural
+limit of the original sort: events were ordered chronologically with
+a 40-event SSR cap, then re-ranked client-side by `enrichmentScore`.
+Followed-artist events past chronological position 40 never made it
+into the SSR'd page, so the boost couldn't surface them. Christian's
+test case: Hamdi at Good Room, 10 PM tomorrow, was missing entirely
+from the unfiltered Tomorrow feed even though the user followed him.
+
+Two coupled fixes shipped together (single PR):
+
+1. **`enrichmentScore` → `feedScore` in `lib/enrichment.ts`.** New
+   formula:
+     - Followed-artist events: `FOLLOWED_TIER_FLOOR (1e6) + popSum`.
+       Whole tier ranks above unfollowed; among themselves, sort by
+       summed lineup popularity.
+     - Other events: `popSum + 25 × genrePrefMatchCount`. Popularity
+       weighted more than genre-pref per spec ("summed artist
+       popularity should be weighted more"). Genre-pref signal feeds
+       in from `user_prefs.preferred_genres` — distinct from the
+       on-screen genre filters; matches contribute additively to
+       lineup popularity.
+     - Per-artist popularity: same recipe as 5.6
+       (`spotify_popularity` + log2-scaled SC + log2-scaled BC,
+       headliner ×1.25), but **summed** across the lineup instead of
+       MAX. Sum better reflects "this is a stacked bill" vs. "one
+       big name surrounded by openers."
+     - Anon-safe: empty follow set + empty preferred genres → pure
+       popularity sort. The no-auth browse path stays sensible.
+
+2. **Candidate-pool augmentation in `lib/follows.ts`.** New helper
+   `getFollowedEventsInWindow(filters, followedSc)` runs three
+   indexed queries (followed slugs → artist IDs → event IDs → events
+   in date window) and returns up to 50 followed-artist events
+   regardless of chronological position. Home page parallel-fetches
+   it alongside the chrono page; `<InfiniteFeed>` accepts it as a
+   separate prop and merges into the day-grouping pass with id
+   dedup. **Pagination cursor stays anchored to the chrono page
+   tail** — the merge is presentation-only, so the keyset
+   `(starts_at, id)` invariant is preserved and `loadMoreEvents`
+   continues to work.
+
+Same comparator change applied to `/saved` for consistency. Initial
+SSR page size bumped 40 → 100 since within-day sort is no longer
+chronological-cap-bound.
+
+Spec accepted with both recommended choices: followed events stay
+within their day groups (no global break-out above all dates), and
+genre-pref matches count equally regardless of array position
+(`user_prefs.preferred_genres` has no canonical order).
 
 ### 5.7 Spotify-following personalized sort — **planned (immediately follows 5.6)**
 
@@ -1016,6 +1069,50 @@ Two follow-ups still owed:
 Reference: PR #5, commit `b0298f6d`. The `deriveOrigin()` helper
 itself stays — it's a hardening that's worth keeping forever, not
 just for this incident.
+
+### SC follow-graph cron scaling re-evaluation (Phase 5.6.5 follow-up)
+
+Phase 5.6.5 shipped a weekly Sunday-night Railway cron that re-syncs
+every connected user's SoundCloud follow graph at a 1 req/sec outer
+throttle. At today's user count this is fine, but the design assumes
+the user pool is small enough that one cron window completes before
+the next Sunday.
+
+Math at scale:
+- 1 req/sec outer throttle × ~3 internal req/sec page throttle in
+  the scraper means ~5–10s of wall-clock per user (typical 50–500
+  follows, paginated at limit=200).
+- 100 users → ~15 minutes. Fine.
+- 500 users → ~75 minutes. Still fine for a weekly cron.
+- 1000 users → ~2.5 hours. Approaching the edge of what's
+  comfortable for a single cron window (and SC's api-v2 unpublished
+  rate ceiling becomes a real worry — we don't know what it is).
+- 5000 users → would push past 12 hours and start risking 429s,
+  client_id rotations mid-run, and partial completions.
+
+When to revisit: as connected-user count crosses ~500. Options to
+evaluate at that point:
+
+1. **Jittered batching across the week.** Instead of "all users on
+   Sunday 04:00 UTC", split into 2–3 cron services running
+   Wed/Sat/Sun spread by user_id hash. Each service sees ~33% of
+   the pool, runs in ~25 minutes for 1000 users.
+2. **Per-user lazy invalidation as primary signal.** Move the cron
+   to a fallback role: only re-scrape users whose
+   `soundcloud_last_synced_at` exceeds 14 days. The connect-card
+   Refresh button + onboarding-completion sync already cover the
+   high-value paths.
+3. **Monitor 429 rate during the run** and back off adaptively
+   (existing scraper's 5s cooldown logic is in place; could log
+   429-counts per run and alert if they exceed a threshold).
+4. **Shard by user_id modulo** across N Railway services running
+   in parallel — independent client_id caches, no shared state, N×
+   throughput. Cleanest path if SC api-v2 can take the concurrent
+   load (which is why option 3's monitoring matters first).
+
+No code change needed today. Add a cron-log assertion that the
+weekly run completes inside its window so we get an early signal
+before users start missing weekly refreshes.
 
 ### Cross-collaborator coordination note
 
