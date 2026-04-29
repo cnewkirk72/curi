@@ -18,6 +18,7 @@ import { BottomNav } from '@/components/bottom-nav';
 import { DesktopTopNav } from '@/components/desktop/desktop-top-nav';
 import { EventCard } from '@/components/event-card';
 import { getSavedEvents } from '@/lib/saves';
+import { getUserFollowedSoundcloudUsernames } from '@/lib/follows';
 import { createClient } from '@/lib/supabase/server';
 import { nycDayKey, groupLabel } from '@/lib/format';
 import type { FeedEvent } from '@/lib/events';
@@ -46,16 +47,28 @@ function groupByDay(events: FeedEvent[]): DayGroup[] {
 export default async function SavedPage() {
   const supabase = createClient();
 
-  // Fetch user + saved list in parallel. getSavedEvents already
-  // returns [] for anon viewers (RLS), but we still need the user
-  // object to branch the UI — an anon viewer gets a different screen
-  // than a signed-in user with zero saves.
-  const [savedEvents, {
+  // Fetch user + saved list + follow graph in parallel. getSavedEvents
+  // and getUserFollowedSoundcloudUsernames both return [] for anon
+  // viewers (RLS), but we still need the user object to branch the
+  // UI — an anon viewer gets a different screen than a signed-in user
+  // with zero saves. The follow graph is threaded into EventCard so
+  // the "You follow [Artist]" caption surfaces consistently between
+  // /saved and the home feed (Phase 5.6).
+  const [savedEvents, followedScUsernames, {
     data: { user },
-  }] = await Promise.all([getSavedEvents(), supabase.auth.getUser()]);
+  }] = await Promise.all([
+    getSavedEvents(),
+    getUserFollowedSoundcloudUsernames(),
+    supabase.auth.getUser(),
+  ]);
 
   const groups = groupByDay(savedEvents);
   const total = savedEvents.length;
+  // Build the Set once at the page level rather than in <Feed> — Feed
+  // re-renders only when groups change (effectively never within a
+  // single page life), so the cost is the same either way and this
+  // keeps Feed's prop surface minimal.
+  const followedScUsernameSet = new Set(followedScUsernames);
 
   return (
     <div className="relative min-h-dvh">
@@ -101,7 +114,7 @@ export default async function SavedPage() {
         ) : total === 0 ? (
           <EmptyState />
         ) : (
-          <Feed groups={groups} />
+          <Feed groups={groups} followedScUsernameSet={followedScUsernameSet} />
         )}
       </main>
 
@@ -112,7 +125,13 @@ export default async function SavedPage() {
 
 // ─── Sub-views ───────────────────────────────────────
 
-function Feed({ groups }: { groups: DayGroup[] }) {
+function Feed({
+  groups,
+  followedScUsernameSet,
+}: {
+  groups: DayGroup[];
+  followedScUsernameSet: Set<string>;
+}) {
   return (
     <div className="relative space-y-10">
       {groups.map(({ dayKey, events }) => (
@@ -140,7 +159,16 @@ function Feed({ groups }: { groups: DayGroup[] }) {
               // Every event on this screen is saved by definition, so
               // `saved={true}` is hard-coded. signedIn is also true
               // by construction — we only render Feed in that branch.
-              <EventCard key={ev.id} event={ev} saved signedIn />
+              // followedSoundcloudUsernames threaded through so the
+              // "You follow [Artist]" caption renders consistently
+              // with the home feed.
+              <EventCard
+                key={ev.id}
+                event={ev}
+                saved
+                followedSoundcloudUsernames={followedScUsernameSet}
+                signedIn
+              />
             ))}
           </div>
         </section>
