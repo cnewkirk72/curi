@@ -258,18 +258,27 @@ export function EventCard({
                         aria-label={`You follow ${a.name}`}
                         className={cn(
                           'pointer-events-none absolute -bottom-0.5 -right-0.5',
-                          'h-2 w-2 rounded-full bg-accent',
+                          // Phase 5.6.6 — amber matches SoundCloud's
+                          // brand orange-amber, giving the SC-follow
+                          // signal its own color vocabulary (distinct
+                          // from cyan, which stays reserved for primary
+                          // actions and transient success states).
+                          // Same dot styling appears on the
+                          // ConnectedSummary indicator and the
+                          // LineupList avatars on the detail page.
+                          'h-2 w-2 rounded-full bg-amber',
                           // Inset ring matches the card background so
                           // the dot reads as separated from the
                           // avatar even on busy photo backgrounds.
                           'ring-2 ring-bg-base',
-                          // Subtle cyan halo. Uses the smaller glow
-                          // token (16px / 0.25α) — same one SaveButton
-                          // and BottomNav use for active states. The
-                          // full `shadow-glow` (24px / 0.35α) would
-                          // halo larger than the avatar itself; -sm
-                          // keeps the indicator presence-dot subtle.
-                          'shadow-glow-sm',
+                          // Amber-tinted halo, smaller variant. Same
+                          // 16px / 0.30α the SaveButton + BottomNav
+                          // use for cyan active states, recolored to
+                          // match the dot. The full `shadow-glow-amber`
+                          // (24px / 0.40α) would halo larger than the
+                          // avatar itself; -sm keeps the indicator
+                          // presence-dot subtle.
+                          'shadow-glow-amber-sm',
                         )}
                       />
                     )}
