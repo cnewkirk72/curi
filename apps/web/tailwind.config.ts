@@ -15,7 +15,7 @@ const config: Config = {
       screens: { '2xl': '1400px' },
     },
     extend: {
-      // ─── Color tokens ───────────────────────────────────
+      // ─── Color tokens ─────────────────────────────
       colors: {
         // Canvas
         'bg-deep': 'hsl(var(--bg-deep))',
@@ -66,7 +66,7 @@ const config: Config = {
         ring: 'hsl(var(--accent))',
       },
 
-      // ─── Typography ──────────────────────────────────────
+      // ─── Typography ─────────────────────────────────
       fontFamily: {
         // Display: Space Grotesk — headings, event titles, section labels
         display: ['var(--font-display)', 'system-ui', 'sans-serif'],
@@ -89,7 +89,7 @@ const config: Config = {
         display: '-0.02em',
       },
 
-      // ─── Radii ──────────────────────────────────────────────
+      // ─── Radii ────────────────────────────────────────
       borderRadius: {
         // Cards, sheets, event images
         '2xl': '16px',
@@ -105,11 +105,19 @@ const config: Config = {
         glow: '0 0 24px rgba(34, 211, 238, 0.35)',
         'glow-sm': '0 0 16px rgba(34, 211, 238, 0.25)',
         'glow-lg': '0 0 40px rgba(34, 211, 238, 0.45)',
+        // Phase 5.6.6 — amber-tinted glow used by the SoundCloud follow
+        // indicator (matches SC's brand orange-amber). Mirrors glow-sm's
+        // size + alpha but with the amber HSL `45 97% 55%` rendered as
+        // rgba so the box-shadow rule renders without runtime CSS-var
+        // resolution. Stays in sync with `--amber` in globals.css —
+        // change both together if the token shifts.
+        'glow-amber-sm': '0 0 16px rgba(251, 191, 36, 0.30)',
+        'glow-amber': '0 0 24px rgba(251, 191, 36, 0.40)',
         card: '0 12px 40px -16px rgba(0, 0, 0, 0.8)',
         'nav-top': '0 -1px 0 rgba(255, 255, 255, 0.06) inset',
       },
 
-      // ─── Blur ─────────────────────────────────────────────────
+      // ─── Blur ────────────────────────────────────────
       backdropBlur: {
         glass: '20px',
       },
@@ -117,7 +125,7 @@ const config: Config = {
         glass: '1.4',
       },
 
-      // ─── Motion ────────────────────────────────────────────────
+      // ─── Motion ─────────────────────────────────────────
       transitionTimingFunction: {
         // MASTER.md easing — expo-out for entrances
         expo: 'cubic-bezier(0.16, 1, 0.3, 1)',
