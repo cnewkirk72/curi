@@ -65,11 +65,20 @@ function gradientFor(genres: string[]): string {
 export function EventCard({
   event,
   saved = false,
+  followedSoundcloudUsernames,
   signedIn = false,
 }: {
   event: FeedEvent;
   /** Whether the viewer has this event in their saves. */
   saved?: boolean;
+  /** Phase 5.6 — lowercased SoundCloud usernames the signed-in user
+   *  follows. When provided, any lineup artist whose
+   *  `soundcloud_username` is in the set is surfaced via the
+   *  "You follow [Artist]" caption below the lineup row, so the
+   *  user can see *why* the event ranked where it did. Undefined or
+   *  empty set means we render the card without the badge — same
+   *  visual as anon viewers. */
+  followedSoundcloudUsernames?: Set<string>;
   /** Whether the viewer is signed in. Threaded in so the
    *  SaveButton can route unauth taps to /login instead of
    *  silently failing against RLS. */
@@ -80,6 +89,22 @@ export function EventCard({
   const lineup = event.lineup.slice(0, 3);
   const moreCount = Math.max(0, event.lineup.length - lineup.length);
   const hero = resolveHero(event);
+
+  // Phase 5.6 — compute the followed-artist names for this card's
+  // lineup (full lineup, not the truncated 3 above — the badge
+  // should announce a follow even when that artist is past the
+  // visible-avatar cap). Skip the work entirely when the user has
+  // no follows so we don't pay an array allocation per card.
+  const followedInLineup =
+    followedSoundcloudUsernames && followedSoundcloudUsernames.size > 0
+      ? event.lineup
+          .filter(
+            (a) =>
+              a.soundcloud_username &&
+              followedSoundcloudUsernames.has(a.soundcloud_username),
+          )
+          .map((a) => a.name)
+      : [];
 
   return (
     <Link
@@ -229,6 +254,24 @@ export function EventCard({
               )}
             </p>
           </div>
+        )}
+
+        {/* Phase 5.6 — "You follow [Artist]" caption. Surfaces *why*
+            this event got the follow-graph boost in the within-day
+            sort (see enrichmentScore). Cyan accent matches the brand
+            highlight; placement under the lineup row reads as an
+            annotation of that row rather than a separate UI element.
+            Truncates at 2 names with "+N" overflow so long lineups
+            don't push the card height around. */}
+        {followedInLineup.length > 0 && (
+          <p className="text-2xs font-medium text-accent">
+            <span className="text-accent/70">You follow </span>
+            {followedInLineup.length === 1
+              ? followedInLineup[0]
+              : followedInLineup.length === 2
+                ? followedInLineup.join(' · ')
+                : `${followedInLineup.slice(0, 2).join(' · ')} +${followedInLineup.length - 2}`}
+          </p>
         )}
 
         {genres.length > 0 && (
