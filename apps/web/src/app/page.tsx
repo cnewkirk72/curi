@@ -20,6 +20,8 @@ import { getSavedEventIds } from '@/lib/saves';
 import {
   getUserFollowedSoundcloudUsernames,
   getFollowedEventsInWindow,
+  getUserFollowedSpotifyArtistIds,
+  getFollowedSpotifyEventsInWindow,
 } from '@/lib/follows';
 import { getUserPrefs } from '@/lib/preferences';
 import { getActiveSearchLabels } from '@/lib/active-search-labels';
@@ -34,29 +36,12 @@ import {
 } from '@/lib/filters';
 import { GlobalSearch } from '@/components/global-search';
 
-// Initial SSR page size. Bumped from 40 → 100 in Phase 5.7 because
-// the within-day sort is now popularity-driven (not chronological),
-// and a 40-event chrono cap meant late-in-day events — including
-// followed-artist events — could fall off the SSR'd page before the
-// client comparator got to re-rank them. 100 covers a typical NYC
-// single-day window in full and most multi-day windows comfortably,
-// while still keeping the SSR payload under ~80 KB. Pagination
-// kicks in for "all upcoming" past 100, and the
-// `getFollowedEventsInWindow` injection ensures followed events
-// always appear regardless of chronological position.
 const INITIAL_PAGE_SIZE = 100;
 
-// Re-fetch on each request during Phase 3. We'll revisit caching
-// (e.g. `revalidate: 60`) in Phase 3.12 once we see production
-// traffic patterns. Dynamic rendering also means searchParams
-// changes trigger a fresh fetch rather than a stale cached page.
 export const dynamic = 'force-dynamic';
 
 type SearchParams = { [key: string]: string | string[] | undefined };
 
-// Next passes `searchParams` into page components as a plain object,
-// not a URLSearchParams. Build a `get()`-shaped adapter so
-// parseFilters can consume it without caring which side it's on.
 function searchParamsAdapter(sp: SearchParams): { get(key: string): string | null } {
   return {
     get(key: string) {
@@ -74,40 +59,25 @@ export default async function HomePage({
 }) {
   const filters = parseFilters(searchParamsAdapter(searchParams));
 
-  // Fire the reads in parallel — they don't depend on each other.
-  // Auth + saved-ids + follow graph all fail soft for anon viewers
-  // (RLS returns [] rather than 403), so the `signedIn` check is
-  // the canonical "show saved state?" predicate. user_prefs read
-  // is Phase 3.18 — drives the personalized genre/vibe ordering in
-  // the desktop sidebar (RLS returns DEFAULT_PREFS for anon
-  // viewers, harmless).
-  //
-  // Phase 5.6 — followedSoundcloudUsernames feeds the within-day
-  // sort boost (enrichmentScore) and the EventCard "You follow
-  // [Artist]" caption. Empty array for anon viewers and for users
-  // who haven't connected SC yet, which is the no-op path the
-  // existing pre-5.6 code took anyway.
   const supabase = createClient();
-  // Phase 6.3 — getActiveSearchLabels resolves `?artist=<slug>` and
-  // `?venue=<slug>` to display names. Both lookups hit unique-indexed
-  // columns and run inside the helper's own Promise.all, so adding it
-  // here costs one round-trip in parallel with the rest of the page
-  // load. Returns nulls for unresolvable slugs (chip won't render).
-  //
-  // Phase 5.7 — followed-events injection. We fetch the user's follow
-  // graph FIRST (so we have the username list to feed into the events
-  // injector), then run the chronological page + the followed-extras
-  // fetch in parallel. The injector uses the same date window as the
-  // main fetch but bypasses the page cap, ensuring followed events in
-  // the window always appear in the candidate pool regardless of
-  // chronological position. See lib/follows.ts → getFollowedEventsInWindow
-  // for the rationale.
-  const followedScUsernames = await getUserFollowedSoundcloudUsernames();
-  const [events, followedExtras, savedIds, prefs, {
-    data: { user },
-  }, searchLabels] = await Promise.all([
+  const [followedScUsernames, followedSpotifyArtistIds] = await Promise.all([
+    getUserFollowedSoundcloudUsernames(),
+    getUserFollowedSpotifyArtistIds(),
+  ]);
+  const [
+    events,
+    followedScExtras,
+    followedSpotifyExtras,
+    savedIds,
+    prefs,
+    {
+      data: { user },
+    },
+    searchLabels,
+  ] = await Promise.all([
     getUpcomingEvents({ limit: INITIAL_PAGE_SIZE, filters }),
     getFollowedEventsInWindow(filters, followedScUsernames),
+    getFollowedSpotifyEventsInWindow(filters, followedSpotifyArtistIds),
     getSavedEventIds(),
     getUserPrefs(),
     supabase.auth.getUser(),
@@ -115,21 +85,12 @@ export default async function HomePage({
   ]);
 
   const signedIn = !!user;
-  // Trim user_prefs to the shape the sidebar/sheet wants — keeps
-  // the prop surface minimal and avoids leaking unrelated fields
-  // (digest_email, etc) into a client component.
   const sidebarPrefs = signedIn
     ? { genres: prefs.preferred_genres, vibes: prefs.preferred_vibes }
     : undefined;
   const active = hasActiveFilters(filters);
-  // Remount the InfiniteFeed whenever the URL's filter state changes
-  // so we don't have to reconcile in-flight pagination against a new
-  // filter set — the parent cache-busts, we just append.
   const feedKey = serializeFilters(filters) || 'all';
 
-  // Eyebrow label — drives the tiny uppercase caption above the
-  // page title. Custom ranges get the formatted "Apr 25 – Apr 27"
-  // treatment so the caption matches the chip.
   const whenLabel =
     filters.when === 'all'
       ? 'Upcoming in NYC'
@@ -137,25 +98,14 @@ export default async function HomePage({
 
   return (
     <div className="relative min-h-dvh">
-      {/* Desktop-only sticky top nav. Self-gates with `hidden lg:block`
-          on its own header so it must be a direct child of this wrapper —
-          sticky only works when the containing block spans the full scroll height. */}
       <DesktopTopNav />
 
       <main
         className={cn(
-          // Mobile: narrow iOS-safe column, same as before.
           'relative mx-auto max-w-[430px] px-5 pb-28 pt-10',
-          // Desktop: widen to a 2-col grid container with sidebar on
-          // the left and feed on the right. `pt-8` is tighter than
-          // mobile since the DesktopTopNav already provides padding.
           'lg:grid lg:max-w-7xl lg:grid-cols-[260px_1fr] lg:gap-10 lg:px-8 lg:pb-16 lg:pt-[86px]',
         )}
       >
-        {/* Ambient blobs — only rendered on mobile. At desktop the
-            sidebar + feed grid provides the visual weight; blobs
-            behind a wide grid end up looking like browser-crop
-            bugs. */}
         <div
           aria-hidden
           className="pointer-events-none absolute -right-20 top-0 h-64 w-64 rounded-full bg-accent/15 blur-3xl animate-blob lg:hidden"
@@ -168,22 +118,15 @@ export default async function HomePage({
 
         <AppHeader />
 
-        {/* Mobile search — hidden at lg+ where the nav carries it */}
         <div className="mb-4 lg:hidden">
           <GlobalSearch />
         </div>
 
-        {/* Desktop sidebar — shown in the grid's first column at lg+.
-            Keeps all filter state in the URL just like mobile. */}
         <div className="hidden lg:block">
           <DesktopSidebarFilters userPrefs={sidebarPrefs} />
         </div>
 
-        {/* Feed column ──────────────────────────────────────────────────────────── */}
         <div className="min-w-0 lg:col-start-2">
-          {/* Hero title — adapts to the active date filter so the
-              feed's framing stays honest when a user has narrowed
-              the window. */}
           <section className="relative mt-4 mb-6 animate-enter-up lg:mt-0 lg:mb-8">
             <p className="font-display text-2xs uppercase tracking-widest text-accent">
               {whenLabel}
@@ -193,11 +136,6 @@ export default async function HomePage({
             </h2>
           </section>
 
-          {/* Phase 6.3 — desktop search chips sit between the eyebrow
-              and the filter-bar/feed so a logged-in user can see (and
-              dismiss) the active artist/venue scope without scanning
-              the sidebar. Renders nothing when no search filter is on,
-              so the layout collapses cleanly. */}
           <div className="hidden lg:block">
             <DesktopActiveSearchChip
               artistLabel={searchLabels.artist?.name ?? null}
@@ -205,7 +143,6 @@ export default async function HomePage({
             />
           </div>
 
-          {/* Mobile filter-bar — hidden at lg+ (sidebar takes over). */}
           <div className="relative mb-8 lg:hidden">
             <FilterBar
               userPrefs={sidebarPrefs}
@@ -214,22 +151,21 @@ export default async function HomePage({
             />
           </div>
 
-          {events.length === 0 && followedExtras.length === 0 ? (
+          {events.length === 0 &&
+          followedScExtras.length === 0 &&
+          followedSpotifyExtras.length === 0 ? (
             <EmptyState filtered={active} />
           ) : (
             <InfiniteFeed
               key={feedKey}
               initialEvents={events}
-              initialFollowedExtras={followedExtras}
+              initialFollowedScExtras={followedScExtras}
+              initialFollowedSpotifyExtras={followedSpotifyExtras}
               initialHasMore={events.length === INITIAL_PAGE_SIZE}
               filters={filters}
               savedIds={[...savedIds]}
               followedSoundcloudUsernames={followedScUsernames}
-              // Phase 5.7 — preferred genres feed into the within-day
-              // sort comparator via feedScore. Empty array for anon
-              // viewers and for signed-in users who haven't completed
-              // onboarding; both cases degrade to pure popularity
-              // sort, which is the correct anon-safe behavior.
+              followedSpotifyArtistIds={followedSpotifyArtistIds}
               preferredGenres={prefs.preferred_genres}
               signedIn={signedIn}
             />
@@ -241,8 +177,6 @@ export default async function HomePage({
     </div>
   );
 }
-
-// ─── Empty state ─────────────────────────────────────────────────────────────────────────
 
 function EmptyState({ filtered }: { filtered: boolean }) {
   if (filtered) {
