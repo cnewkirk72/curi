@@ -92,17 +92,24 @@ interface ArtistRow {
 }
 
 /**
- * Phase 4f.9 — Tier-2 safety net for the expanded event-title classifier.
+ * Phase 4f.10 — Tier-2 safety net for the expanded event-title classifier.
  *
  * The classifier in artist-parsing.ts is intentionally aggressive (plural
  * weekdays, "dance party", "boat party", etc.) so the audit can scoop up
  * pollution in one pass. A rule tight enough to be safe forever would also
- * miss a lot. The backstop: if Spotify matched this artist with meaningful
- * streaming signal (popularity ≥ SPOTIFY_PROTECT_MIN_POP), we don't delete —
- * we route to `spotify_protected` for human review. pop=0 garbage matches
- * are not protected; real human artists with ≥ 20 popularity are.
+ * miss a lot. The backstop: if the enrichment pipeline matched this row to
+ * Spotify (spotify_url) OR to MusicBrainz (genres/subgenres populated from
+ * mb_tags), we don't delete — we route to `spotify_protected` for human
+ * review.
+ *
+ * Why not popularity? The Spotify Nov 2024 API change strips `popularity`
+ * from /artists, so the column is universally null/zero in production. The
+ * old `popularity ≥ 20` gate was effectively never triggering. Switching
+ * to "any enrichment match" is conservative — validated against prod data
+ * (1896 rows, 2026-04-28): 100% of pattern-caught phantoms have neither
+ * spotify_url nor genre/subgenre data, so the rescue gate keeps real
+ * artists safe without protecting any phantom.
  */
-const SPOTIFY_PROTECT_MIN_POP = 20;
 
 interface EventRow {
   id: string;
@@ -215,7 +222,7 @@ async function main(): Promise<void> {
   console.log(`  ${events.length} events`);
 
   const nonArtistNames: Array<{ id: string; name: string; reason: ClassifyReason; event_count: number }> = [];
-  const spotifyProtected: Array<{ id: string; name: string; reason: ClassifyReason; event_count: number; spotify_popularity: number; spotify_url: string }> = [];
+  const spotifyProtected: Array<{ id: string; name: string; reason: ClassifyReason; event_count: number; spotify_url: string | null; has_mb_tags: boolean }> = [];
   const nameLength: Array<{ id: string; name: string; reason: 'too_short' | 'too_long'; event_count: number }> = [];
   const orphansEmpty: Array<{ id: string; name: string }> = [];
   const orphansEnriched: Array<{ id: string; name: string; genres: string[]; subgenres: string[] }> = [];
@@ -228,19 +235,23 @@ async function main(): Promise<void> {
     const classify = classifyArtistName(a.name);
 
     if (!classify.valid && (classify.reason === 'noise' || classify.reason === 'event_title')) {
-      // Tier-2 Spotify-confidence bypass. Popularity ≥ 20 + a spotify_url
-      // means this row has real listener signal — it's almost certainly a
-      // human artist whose name happens to match an event-descriptor pattern.
-      // Route to manual review instead of deletion.
-      const pop = a.spotify_popularity ?? 0;
-      if (pop >= SPOTIFY_PROTECT_MIN_POP && a.spotify_url) {
+      // Tier-2 enrichment-confidence bypass. If Spotify matched (spotify_url
+      // set) OR MusicBrainz returned tags (genres/subgenres populated), the
+      // row has external evidence of a real artist with this exact name —
+      // route to manual review instead of deletion. Validated against prod
+      // (1896 rows): 100% of pattern-caught phantoms have neither signal,
+      // so this gate keeps real artists safe without protecting any phantom.
+      const hasMbTags =
+        (a.genres?.length ?? 0) > 0 || (a.subgenres?.length ?? 0) > 0;
+      const hasEnrichmentSignal = !!a.spotify_url || hasMbTags;
+      if (hasEnrichmentSignal) {
         spotifyProtected.push({
           id: a.id,
           name: a.name,
           reason: classify.reason,
           event_count: eventCount,
-          spotify_popularity: pop,
           spotify_url: a.spotify_url,
+          has_mb_tags: hasMbTags,
         });
       } else {
         nonArtistNames.push({ id: a.id, name: a.name, reason: classify.reason, event_count: eventCount });
@@ -404,7 +415,10 @@ async function main(): Promise<void> {
     }
     console.log('\nSample: spotify_protected (first 10)');
     for (const r of spotifyProtected.slice(0, 10)) {
-      console.log(`  ${r.id}  "${r.name}"  reason=${r.reason}  pop=${r.spotify_popularity}  events=${r.event_count}`);
+      const sig = [r.spotify_url ? 'spotify' : null, r.has_mb_tags ? 'mb' : null]
+        .filter(Boolean)
+        .join('+');
+      console.log(`  ${r.id}  "${r.name}"  reason=${r.reason}  signal=${sig}  events=${r.event_count}`);
     }
     console.log('\nSample: name_collisions (first 5 clusters)');
     for (const c of collisionClusters.slice(0, 5)) {
