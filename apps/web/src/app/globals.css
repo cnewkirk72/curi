@@ -48,6 +48,16 @@
     --sc-orange: 16 100% 50%;     /* #FF5500 */
     --sc-orange-chip-bg: rgba(255, 85, 0, 0.12);
 
+    /* Brand-match — Spotify green. Phase 5.7 dedicated token for the
+     * Spotify follow indicator (avatar dot, ConnectedSummary dot +
+     * @handle, LineupList dots, FollowDotStack). Hex #1ED760 is
+     * Spotify's brighter brand green (used in newer brand contexts —
+     * the older #1DB954 reads slightly muddy on Curi's Midnight
+     * canvas). Distinct from --accent (cyan, primary action) and
+     * --sc-orange so the cross-platform vocabulary stays orthogonal. */
+    --spotify-green: 141 76% 48%; /* #1ED760 */
+    --spotify-green-chip-bg: rgba(30, 215, 96, 0.12);
+
     /* Borders */
     --border: rgba(255, 255, 255, 0.08);
     --border-strong: rgba(255, 255, 255, 0.14);

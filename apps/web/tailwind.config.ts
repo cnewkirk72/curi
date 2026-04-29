@@ -58,6 +58,14 @@ const config: Config = {
           DEFAULT: 'hsl(var(--sc-orange))',
           chip: 'var(--sc-orange-chip-bg)',
         },
+        // Phase 5.7 — brand-match for the Spotify follow indicator.
+        // Same kebab pattern: `bg-spotify-green`, `text-spotify-green`,
+        // `border-spotify-green/30`. See --spotify-green in
+        // globals.css for the brand rationale.
+        'spotify-green': {
+          DEFAULT: 'hsl(var(--spotify-green))',
+          chip: 'var(--spotify-green-chip-bg)',
+        },
 
         // Borders
         border: 'var(--border)',
@@ -123,6 +131,11 @@ const config: Config = {
         // the brand color shifts.
         'glow-sc-sm': '0 0 16px rgba(255, 85, 0, 0.30)',
         'glow-sc': '0 0 24px rgba(255, 85, 0, 0.40)',
+        // Phase 5.7 — Spotify-green tinted glow used by the Spotify
+        // follow indicator. Same recipe as glow-sc-sm/glow-sc with
+        // --spotify-green (#1ED760) rendered as rgba.
+        'glow-spotify-sm': '0 0 16px rgba(30, 215, 96, 0.30)',
+        'glow-spotify': '0 0 24px rgba(30, 215, 96, 0.40)',
         card: '0 12px 40px -16px rgba(0, 0, 0, 0.8)',
         'nav-top': '0 -1px 0 rgba(255, 255, 255, 0.06) inset',
       },
