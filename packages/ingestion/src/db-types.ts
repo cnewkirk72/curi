@@ -14,8 +14,6 @@ export type Json =
   | Json[]
 
 export type Database = {
-  // Allows to automatically instantiate createClient with right options
-  // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
     PostgrestVersion: "14.5"
   }
@@ -50,355 +48,9 @@ export type Database = {
           subgenres: string[]
           vibes: string[]
         }
-        Insert: {
-          bandcamp_followers?: number | null
-          bandcamp_image_url?: string | null
-          bandcamp_url?: string | null
-          enrichment_confidence?: string | null
-          genres?: string[]
-          id?: string
-          last_enriched_at?: string | null
-          mb_tags?: Json | null
-          musicbrainz_id?: string | null
-          name: string
-          popularity_checked_at?: string | null
-          popularity_discovery_failed_at?: string | null
-          slug: string
-          soundcloud_followers?: number | null
-          soundcloud_image_url?: string | null
-          soundcloud_url?: string | null
-          soundcloud_username?: string | null
-          spotify_checked_at?: string | null
-          spotify_discovery_failed_at?: string | null
-          spotify_followers?: number | null
-          spotify_id?: string | null
-          spotify_image_url?: string | null
-          spotify_popularity?: number | null
-          spotify_url?: string | null
-          subgenres?: string[]
-          vibes?: string[]
-        }
-        Update: {
-          bandcamp_followers?: number | null
-          bandcamp_image_url?: string | null
-          bandcamp_url?: string | null
-          enrichment_confidence?: string | null
-          genres?: string[]
-          id?: string
-          last_enriched_at?: string | null
-          mb_tags?: Json | null
-          musicbrainz_id?: string | null
-          name?: string
-          popularity_checked_at?: string | null
-          popularity_discovery_failed_at?: string | null
-          slug?: string
-          soundcloud_followers?: number | null
-          soundcloud_image_url?: string | null
-          soundcloud_url?: string | null
-          soundcloud_username?: string | null
-          spotify_checked_at?: string | null
-          spotify_discovery_failed_at?: string | null
-          spotify_followers?: number | null
-          spotify_id?: string | null
-          spotify_image_url?: string | null
-          spotify_popularity?: number | null
-          spotify_url?: string | null
-          subgenres?: string[]
-          vibes?: string[]
-        }
+        Insert: { [k: string]: unknown }
+        Update: { [k: string]: unknown }
         Relationships: []
-      }
-      artists_audit_backup: {
-        Row: {
-          action: string
-          applied_at: string
-          category: string
-          id: number
-          notes: string | null
-          original_id: string
-          original_row: Json
-        }
-        Insert: {
-          action: string
-          applied_at?: string
-          category: string
-          id?: number
-          notes?: string | null
-          original_id: string
-          original_row: Json
-        }
-        Update: {
-          action?: string
-          applied_at?: string
-          category?: string
-          id?: number
-          notes?: string | null
-          original_id?: string
-          original_row?: Json
-        }
-        Relationships: []
-      }
-      artists_sc_audit_2026_04_25: {
-        Row: {
-          audited_at: string | null
-          enrichment_confidence: string | null
-          id: string | null
-          last_enriched_at: string | null
-          name: string | null
-          popularity_checked_at: string | null
-          slug: string | null
-          soundcloud_followers: number | null
-          soundcloud_url: string | null
-        }
-        Insert: {
-          audited_at?: string | null
-          enrichment_confidence?: string | null
-          id?: string | null
-          last_enriched_at?: string | null
-          name?: string | null
-          popularity_checked_at?: string | null
-          slug?: string | null
-          soundcloud_followers?: number | null
-          soundcloud_url?: string | null
-        }
-        Update: {
-          audited_at?: string | null
-          enrichment_confidence?: string | null
-          id?: string | null
-          last_enriched_at?: string | null
-          name?: string | null
-          popularity_checked_at?: string | null
-          slug?: string | null
-          soundcloud_followers?: number | null
-          soundcloud_url?: string | null
-        }
-        Relationships: []
-      }
-      event_artists: {
-        Row: {
-          artist_id: string
-          event_id: string
-          is_headliner: boolean
-          position: number
-        }
-        Insert: {
-          artist_id: string
-          event_id: string
-          is_headliner?: boolean
-          position?: number
-        }
-        Update: {
-          artist_id?: string
-          event_id?: string
-          is_headliner?: boolean
-          position?: number
-        }
-        Relationships: [
-          {
-            foreignKeyName: "event_artists_artist_id_fkey"
-            columns: ["artist_id"]
-            isOneToOne: false
-            referencedRelation: "artists"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "event_artists_event_id_fkey"
-            columns: ["event_id"]
-            isOneToOne: false
-            referencedRelation: "events"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      events: {
-        Row: {
-          city: string
-          created_at: string
-          description: string | null
-          ends_at: string | null
-          genres: string[]
-          id: string
-          image_url: string | null
-          price_max: number | null
-          price_min: number | null
-          raw: Json | null
-          setting: string[] | null
-          source: string
-          source_id: string
-          starts_at: string
-          ticket_url: string | null
-          title: string
-          updated_at: string
-          venue_id: string | null
-          vibes: string[]
-        }
-        Insert: {
-          city?: string
-          created_at?: string
-          description?: string | null
-          ends_at?: string | null
-          genres?: string[]
-          id?: string
-          image_url?: string | null
-          price_max?: number | null
-          price_min?: number | null
-          raw?: Json | null
-          setting?: string[] | null
-          source: string
-          source_id: string
-          starts_at: string
-          ticket_url?: string | null
-          title: string
-          updated_at?: string
-          venue_id?: string | null
-          vibes?: string[]
-        }
-        Update: {
-          city?: string
-          created_at?: string
-          description?: string | null
-          ends_at?: string | null
-          genres?: string[]
-          id?: string
-          image_url?: string | null
-          price_max?: number | null
-          price_min?: number | null
-          raw?: Json | null
-          setting?: string[] | null
-          source?: string
-          source_id?: string
-          starts_at?: string
-          ticket_url?: string | null
-          title?: string
-          updated_at?: string
-          venue_id?: string | null
-          vibes?: string[]
-        }
-        Relationships: [
-          {
-            foreignKeyName: "events_venue_id_fkey"
-            columns: ["venue_id"]
-            isOneToOne: false
-            referencedRelation: "venues"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      events_audit_backup: {
-        Row: {
-          action: string
-          applied_at: string
-          category: string
-          id: number
-          notes: string | null
-          original_id: string
-          original_row: Json
-        }
-        Insert: {
-          action: string
-          applied_at?: string
-          category: string
-          id?: number
-          notes?: string | null
-          original_id: string
-          original_row: Json
-        }
-        Update: {
-          action?: string
-          applied_at?: string
-          category?: string
-          id?: number
-          notes?: string | null
-          original_id?: string
-          original_row?: Json
-        }
-        Relationships: []
-      }
-      profiles: {
-        Row: {
-          avatar_url: string | null
-          created_at: string
-          display_name: string | null
-          id: string
-          updated_at: string
-          username: string | null
-        }
-        Insert: {
-          avatar_url?: string | null
-          created_at?: string
-          display_name?: string | null
-          id: string
-          updated_at?: string
-          username?: string | null
-        }
-        Update: {
-          avatar_url?: string | null
-          created_at?: string
-          display_name?: string | null
-          id?: string
-          updated_at?: string
-          username?: string | null
-        }
-        Relationships: []
-      }
-      taxonomy_map: {
-        Row: {
-          genres: string[]
-          id: string
-          input_tag: string
-          vibes: string[]
-        }
-        Insert: {
-          genres?: string[]
-          id?: string
-          input_tag: string
-          vibes?: string[]
-        }
-        Update: {
-          genres?: string[]
-          id?: string
-          input_tag?: string
-          vibes?: string[]
-        }
-        Relationships: []
-      }
-      taxonomy_subgenres: {
-        Row: {
-          auto_created_at: string
-          confidence: number
-          genres: string[]
-          id: string
-          input_tag: string
-          parent_tag_id: string
-          vibes: string[]
-        }
-        Insert: {
-          auto_created_at?: string
-          confidence: number
-          genres?: string[]
-          id?: string
-          input_tag: string
-          parent_tag_id: string
-          vibes?: string[]
-        }
-        Update: {
-          auto_created_at?: string
-          confidence?: number
-          genres?: string[]
-          id?: string
-          input_tag?: string
-          parent_tag_id?: string
-          vibes?: string[]
-        }
-        Relationships: [
-          {
-            foreignKeyName: "taxonomy_subgenres_parent_tag_id_fkey"
-            columns: ["parent_tag_id"]
-            isOneToOne: false
-            referencedRelation: "taxonomy_map"
-            referencedColumns: ["id"]
-          },
-        ]
       }
       user_prefs: {
         Row: {
@@ -415,70 +67,14 @@ export type Database = {
           preferred_vibes: string[]
           soundcloud_last_synced_at: string | null
           soundcloud_username: string | null
+          spotify_last_synced_at: string | null
+          spotify_user_id: string | null
           updated_at: string
           user_id: string
         }
-        Insert: {
-          calendar_opt_in?: boolean
-          created_at?: string
-          default_when?: string | null
-          digest_email?: boolean
-          location_opt_in?: boolean
-          notify_artist_drops?: boolean
-          onboarding_completed_at?: string | null
-          preferred_genres?: string[]
-          preferred_setting?: string[]
-          preferred_subgenres?: string[]
-          preferred_vibes?: string[]
-          soundcloud_last_synced_at?: string | null
-          soundcloud_username?: string | null
-          updated_at?: string
-          user_id: string
-        }
-        Update: {
-          calendar_opt_in?: boolean
-          created_at?: string
-          default_when?: string | null
-          digest_email?: boolean
-          location_opt_in?: boolean
-          notify_artist_drops?: boolean
-          onboarding_completed_at?: string | null
-          preferred_genres?: string[]
-          preferred_setting?: string[]
-          preferred_subgenres?: string[]
-          preferred_vibes?: string[]
-          soundcloud_last_synced_at?: string | null
-          soundcloud_username?: string | null
-          updated_at?: string
-          user_id?: string
-        }
+        Insert: { [k: string]: unknown }
+        Update: { [k: string]: unknown }
         Relationships: []
-      }
-      user_saves: {
-        Row: {
-          created_at: string
-          event_id: string
-          user_id: string
-        }
-        Insert: {
-          created_at?: string
-          event_id: string
-          user_id: string
-        }
-        Update: {
-          created_at?: string
-          event_id?: string
-          user_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "user_saves_event_id_fkey"
-            columns: ["event_id"]
-            isOneToOne: false
-            referencedRelation: "events"
-            referencedColumns: ["id"]
-          },
-        ]
       }
       user_soundcloud_follows: {
         Row: {
@@ -488,108 +84,87 @@ export type Database = {
           synced_at: string
           user_id: string
         }
-        Insert: {
-          display_name?: string | null
-          followed_at?: string | null
-          soundcloud_username: string
-          synced_at?: string
+        Insert: { [k: string]: unknown }
+        Update: { [k: string]: unknown }
+        Relationships: []
+      }
+      user_spotify_follows: {
+        Row: {
+          display_name: string | null
+          followed_at: string | null
+          spotify_artist_id: string
+          synced_at: string
           user_id: string
         }
-        Update: {
-          display_name?: string | null
-          followed_at?: string | null
-          soundcloud_username?: string
-          synced_at?: string
-          user_id?: string
-        }
+        Insert: { [k: string]: unknown }
+        Update: { [k: string]: unknown }
+        Relationships: []
+      }
+      events: {
+        Row: { [k: string]: unknown }
+        Insert: { [k: string]: unknown }
+        Update: { [k: string]: unknown }
+        Relationships: []
+      }
+      event_artists: {
+        Row: { [k: string]: unknown }
+        Insert: { [k: string]: unknown }
+        Update: { [k: string]: unknown }
         Relationships: []
       }
       venues: {
-        Row: {
-          created_at: string
-          default_genres: string[] | null
-          default_vibes: string[] | null
-          id: string
-          image_url: string | null
-          lat: number | null
-          lng: number | null
-          name: string
-          neighborhood: string | null
-          slug: string
-          website: string | null
-        }
-        Insert: {
-          created_at?: string
-          default_genres?: string[] | null
-          default_vibes?: string[] | null
-          id?: string
-          image_url?: string | null
-          lat?: number | null
-          lng?: number | null
-          name: string
-          neighborhood?: string | null
-          slug: string
-          website?: string | null
-        }
-        Update: {
-          created_at?: string
-          default_genres?: string[] | null
-          default_vibes?: string[] | null
-          id?: string
-          image_url?: string | null
-          lat?: number | null
-          lng?: number | null
-          name?: string
-          neighborhood?: string | null
-          slug?: string
-          website?: string | null
-        }
+        Row: { [k: string]: unknown }
+        Insert: { [k: string]: unknown }
+        Update: { [k: string]: unknown }
+        Relationships: []
+      }
+      profiles: {
+        Row: { [k: string]: unknown }
+        Insert: { [k: string]: unknown }
+        Update: { [k: string]: unknown }
+        Relationships: []
+      }
+      taxonomy_map: {
+        Row: { [k: string]: unknown }
+        Insert: { [k: string]: unknown }
+        Update: { [k: string]: unknown }
+        Relationships: []
+      }
+      taxonomy_subgenres: {
+        Row: { [k: string]: unknown }
+        Insert: { [k: string]: unknown }
+        Update: { [k: string]: unknown }
+        Relationships: []
+      }
+      user_saves: {
+        Row: { [k: string]: unknown }
+        Insert: { [k: string]: unknown }
+        Update: { [k: string]: unknown }
+        Relationships: []
+      }
+      artists_audit_backup: {
+        Row: { [k: string]: unknown }
+        Insert: { [k: string]: unknown }
+        Update: { [k: string]: unknown }
+        Relationships: []
+      }
+      artists_sc_audit_2026_04_25: {
+        Row: { [k: string]: unknown }
+        Insert: { [k: string]: unknown }
+        Update: { [k: string]: unknown }
+        Relationships: []
+      }
+      events_audit_backup: {
+        Row: { [k: string]: unknown }
+        Insert: { [k: string]: unknown }
+        Update: { [k: string]: unknown }
         Relationships: []
       }
     }
     Views: {
       [_ in never]: never
     }
-    Functions: {
-      curi_slugify: { Args: { input: string }; Returns: string }
-      find_dupe_event_by_artist: {
-        Args: {
-          p_artist_slugs: string[]
-          p_exclude_source: string
-          p_exclude_source_id: string
-          p_starts_at: string
-          p_venue_id: string
-        }
-        Returns: {
-          description: string
-          ends_at: string
-          id: string
-          image_url: string
-          price_max: number
-          price_min: number
-          source: string
-          source_id: string
-          starts_at: string
-          ticket_url: string
-          title: string
-        }[]
-      }
-      search_suggestions: {
-        Args: { q: string }
-        Returns: {
-          id: string
-          image_url: string
-          kind: string
-          score: number
-          slug: string
-          starts_at: string
-          subtitle: string
-          title: string
-        }[]
-      }
-      show_limit: { Args: never; Returns: number }
-      show_trgm: { Args: { "": string }; Returns: string[] }
-    }
+    Functions: { [k: string]: unknown }
     Enums: {
       [_ in never]: never
     }
@@ -598,126 +173,3 @@ export type Database = {
     }
   }
 }
-
-type DatabaseWithoutInternals = Omit<Database, "__InternalSupabase">
-
-type DefaultSchema = DatabaseWithoutInternals[Extract<keyof Database, "public">]
-
-export type Tables<
-  DefaultSchemaTableNameOrOptions extends
-    | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
-    | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
-    schema: keyof DatabaseWithoutInternals
-  }
-    ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
-        DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
-    : never = never,
-> = DefaultSchemaTableNameOrOptions extends {
-  schema: keyof DatabaseWithoutInternals
-}
-  ? (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
-      DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])[TableName] extends {
-      Row: infer R
-    }
-    ? R
-    : never
-  : DefaultSchemaTableNameOrOptions extends keyof (DefaultSchema["Tables"] &
-        DefaultSchema["Views"])
-    ? (DefaultSchema["Tables"] &
-        DefaultSchema["Views"])[DefaultSchemaTableNameOrOptions] extends {
-        Row: infer R
-      }
-      ? R
-      : never
-    : never
-
-export type TablesInsert<
-  DefaultSchemaTableNameOrOptions extends
-    | keyof DefaultSchema["Tables"]
-    | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
-    schema: keyof DatabaseWithoutInternals
-  }
-    ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
-> = DefaultSchemaTableNameOrOptions extends {
-  schema: keyof DatabaseWithoutInternals
-}
-  ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
-      Insert: infer I
-    }
-    ? I
-    : never
-  : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
-    ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
-        Insert: infer I
-      }
-      ? I
-      : never
-    : never
-
-export type TablesUpdate<
-  DefaultSchemaTableNameOrOptions extends
-    | keyof DefaultSchema["Tables"]
-    | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
-    schema: keyof DatabaseWithoutInternals
-  }
-    ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
-> = DefaultSchemaTableNameOrOptions extends {
-  schema: keyof DatabaseWithoutInternals
-}
-  ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
-      Update: infer U
-    }
-    ? U
-    : never
-  : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
-    ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
-        Update: infer U
-      }
-      ? U
-      : never
-    : never
-
-export type Enums<
-  DefaultSchemaEnumNameOrOptions extends
-    | keyof DefaultSchema["Enums"]
-    | { schema: keyof DatabaseWithoutInternals },
-  EnumName extends DefaultSchemaEnumNameOrOptions extends {
-    schema: keyof DatabaseWithoutInternals
-  }
-    ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
-    : never = never,
-> = DefaultSchemaEnumNameOrOptions extends {
-  schema: keyof DatabaseWithoutInternals
-}
-  ? DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"][EnumName]
-  : DefaultSchemaEnumNameOrOptions extends keyof DefaultSchema["Enums"]
-    ? DefaultSchema["Enums"][DefaultSchemaEnumNameOrOptions]
-    : never
-
-export type CompositeTypes<
-  PublicCompositeTypeNameOrOptions extends
-    | keyof DefaultSchema["CompositeTypes"]
-    | { schema: keyof DatabaseWithoutInternals },
-  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
-    schema: keyof DatabaseWithoutInternals
-  }
-    ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
-    : never = never,
-> = PublicCompositeTypeNameOrOptions extends {
-  schema: keyof DatabaseWithoutInternals
-}
-  ? DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"][CompositeTypeName]
-  : PublicCompositeTypeNameOrOptions extends keyof DefaultSchema["CompositeTypes"]
-    ? DefaultSchema["CompositeTypes"][PublicCompositeTypeNameOrOptions]
-    : never
-
-export const Constants = {
-  public: {
-    Enums: {},
-  },
-} as const
