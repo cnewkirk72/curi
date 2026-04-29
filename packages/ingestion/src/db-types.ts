@@ -39,6 +39,7 @@ export type Database = {
           soundcloud_followers: number | null
           soundcloud_image_url: string | null
           soundcloud_url: string | null
+          soundcloud_username: string | null
           spotify_checked_at: string | null
           spotify_discovery_failed_at: string | null
           spotify_followers: number | null
@@ -66,6 +67,7 @@ export type Database = {
           soundcloud_followers?: number | null
           soundcloud_image_url?: string | null
           soundcloud_url?: string | null
+          soundcloud_username?: string | null
           spotify_checked_at?: string | null
           spotify_discovery_failed_at?: string | null
           spotify_followers?: number | null
@@ -93,6 +95,7 @@ export type Database = {
           soundcloud_followers?: number | null
           soundcloud_image_url?: string | null
           soundcloud_url?: string | null
+          soundcloud_username?: string | null
           spotify_checked_at?: string | null
           spotify_discovery_failed_at?: string | null
           spotify_followers?: number | null
@@ -410,6 +413,8 @@ export type Database = {
           preferred_setting: string[]
           preferred_subgenres: string[]
           preferred_vibes: string[]
+          soundcloud_last_synced_at: string | null
+          soundcloud_username: string | null
           updated_at: string
           user_id: string
         }
@@ -425,6 +430,8 @@ export type Database = {
           preferred_setting?: string[]
           preferred_subgenres?: string[]
           preferred_vibes?: string[]
+          soundcloud_last_synced_at?: string | null
+          soundcloud_username?: string | null
           updated_at?: string
           user_id: string
         }
@@ -440,6 +447,8 @@ export type Database = {
           preferred_setting?: string[]
           preferred_subgenres?: string[]
           preferred_vibes?: string[]
+          soundcloud_last_synced_at?: string | null
+          soundcloud_username?: string | null
           updated_at?: string
           user_id?: string
         }
@@ -470,6 +479,30 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      user_soundcloud_follows: {
+        Row: {
+          display_name: string | null
+          followed_at: string | null
+          soundcloud_username: string
+          synced_at: string
+          user_id: string
+        }
+        Insert: {
+          display_name?: string | null
+          followed_at?: string | null
+          soundcloud_username: string
+          synced_at?: string
+          user_id: string
+        }
+        Update: {
+          display_name?: string | null
+          followed_at?: string | null
+          soundcloud_username?: string
+          synced_at?: string
+          user_id?: string
+        }
+        Relationships: []
       }
       venues: {
         Row: {
