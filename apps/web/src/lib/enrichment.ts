@@ -1,12 +1,17 @@
 // Phase 5.7 — feed score function. Drives within-day sort in the home
-// feed and /saved. Replaces the Phase 5.6 `enrichmentScore` with a
-// richer, intent-aligned formula:
+// feed and /saved. Extends the Phase 5.6.6 two-tier formula
+// (followed > unfollowed) into a three-tier system that prioritizes
+// cross-platform matches:
 //
-//   1. Followed-artist events → tier floor + summed popularity
-//      (so they always outrank unfollowed events; among themselves
-//      they sort by how popular the lineup is)
-//   2. Other events → weighted combination of summed popularity +
-//      genre-pref match count, with popularity weighted more
+//   Tier 0  Both Spotify AND SoundCloud match  → top of feed
+//   Tier 1  Spotify match only                  → above SC-only
+//   Tier 2  SoundCloud match only               → above no-match
+//   Tier 3  No follow match                     → popularity + genre-pref
+//
+// Per Christian's spec: Spotify ranks above SoundCloud (Spotify
+// follows are a more deliberate curation signal for most users), and
+// any cross-platform match outranks every single-platform match
+// regardless of popularity.
 //
 // Kept separate from `events.ts` on purpose: `events.ts` imports the
 // server-only Supabase client (which pulls in `next/headers`), so any
@@ -18,11 +23,11 @@
 // This file is pure — no Next, no Supabase, no side effects — so the
 // client `infinite-feed.tsx` can import it safely.
 //
-// Anon-safe by design: `followedSoundcloudUsernames` and
-// `preferredGenres` are both optional. Empty/undefined arguments fall
-// back to a pure popularity sort, which is the correct behavior for
-// the un-signed-in browse path (Curi has a no-auth UX path; the feed
-// must rank usefully without any user signal).
+// Anon-safe by design: all three follow-set / preference parameters
+// are optional. Empty/undefined arguments fall back to a pure
+// popularity sort, which is the correct behavior for the un-signed-in
+// browse path (Curi has a no-auth UX path; the feed must rank
+// usefully without any user signal).
 
 /**
  * Minimal structural type for `feedScore`. Deliberately declared
@@ -41,10 +46,14 @@ type ScorableEvent = {
     soundcloud_followers: number | null;
     bandcamp_followers: number | null;
     /** Phase 5.6 — lowercased SC profile slug. Join key against the
-     *  signed-in user's follow set. NULL when the artist has no SC URL
-     *  or the URL didn't match the strict profile-URL regex during
-     *  the migration 0022 backfill (see header for the miss list). */
+     *  signed-in user's SC follow set. NULL when the artist has no
+     *  SC URL or the URL didn't match the strict profile-URL regex
+     *  during the migration 0022 backfill. */
     soundcloud_username: string | null;
+    /** Phase 5.7 — Spotify artist ID (base62). Join key against the
+     *  signed-in user's Spotify follow set. NULL when the artist
+     *  hasn't been Spotify-enriched yet. */
+    spotify_id: string | null;
   }>;
 };
 
@@ -58,68 +67,59 @@ type ScorableEvent = {
 const HEADLINER_BOOST = 1.25;
 
 /**
- * Phase 5.7 — weight on the summed-popularity term. Christian's spec:
- * "summed artist popularity should be weighted more" than the
- * genre-pref match term. Weight 1 here means popularity contributes
- * its raw magnitude; the genre-pref weight is the modulator below.
- *
- * Single top-level dial — the internal balance between
- * spotify_popularity (raw 0–100) and follower log2-scaling stays
- * fixed inside the per-artist contribution loop.
+ * Phase 5.6.6 — weight on the summed-popularity term. Christian's
+ * spec for the unfollowed tier: "summed artist popularity should be
+ * weighted more" than the genre-pref match term.
  */
 const POPULARITY_WEIGHT = 1;
 
 /**
- * Phase 5.7 — additive boost per matching preferred genre on the event.
- * Sized so it meaningfully reorders unfollowed events with similar
- * popularity, without overwhelming the popularity term.
+ * Phase 5.6.6 — additive boost per matching preferred genre on the
+ * event. Sized so it meaningfully reorders unfollowed events with
+ * similar popularity, without overwhelming the popularity term.
  *
- * Calibration sketch:
+ * Calibration sketch unchanged from 5.6.6:
  *   - Typical 3-artist mid-tier lineup: per-artist popularity ~25–35,
  *     summed (with one headliner) ≈ 90.
- *   - A high-tier lineup with a 1M-follower headliner: per-artist
- *     popularity ~50, summed ≈ 150–180.
- *   - Genre matches typically 0–3 (user has 3–5 preferred genres,
- *     event tags 1–3 genres, intersection 0–2).
+ *   - High-tier 1M-follower headliner: summed ≈ 150–180.
+ *   - Genre matches typically 0–3.
  *
  * At W_PREF = 25, a 2-genre match (+50) is worth roughly the gap
- * between a mid-tier and high-tier lineup — significant but not
- * overwhelming. A high-tier lineup with 0 genre matches still beats
- * a low-tier lineup with 2 genre matches (180 > 50 + 50 = 100).
+ * between mid-tier and high-tier — significant but not overwhelming.
  */
 const GENRE_PREF_WEIGHT = 25;
 
 /**
- * Phase 5.7 — followed-event tier floor. Added to every followed
- * event's score so the entire followed-tier sits above the entire
- * unfollowed-tier.
+ * Phase 5.7 — three tier floors stacked with 1M of headroom each.
  *
- * 1e6 is comfortable headroom: the heaviest unfollowed score we can
- * realistically construct is summed-popularity over a 10-artist lineup
- * with all-headliner all-1M-follower acts ≈ 50 × 10 × 1.25 ≈ 625, plus
- * (impossibly) 10 genre matches × 25 = 250. Total ≈ 875. 1e6 dwarfs
- * that by 1000×, so the tier separation is unambiguous.
+ *   BOTH       3_000_000 → cross-platform match (Spotify ∧ SC)
+ *   SPOTIFY    2_000_000 → Spotify-only match
+ *   SC         1_000_000 → SoundCloud-only match
+ *   (none)     0         → unfollowed events compete on popSum + pref
  *
- * Within the followed tier, events sort by summed popularity (no
- * additional weight applied — followed-tier ranking is purely
- * "how big is this lineup"). Genre-pref doesn't apply inside the
- * followed tier because the user's explicit follow signal already
- * dominates the intent.
+ * The 1M headroom dwarfs the realistic popSum range (~600 max for a
+ * 10-artist all-headliner lineup) so tier separation is unambiguous
+ * regardless of lineup size. Within each followed tier, events sort
+ * by summed popularity. Genre-pref doesn't apply inside followed tiers
+ * because the explicit follow signal already dominates.
+ *
+ * Future-proof: 1M headroom leaves room for new signals (plays-this-
+ * week, save-history, attendance) to layer in without colliding with
+ * the tier floors.
  */
-const FOLLOWED_TIER_FLOOR = 1_000_000;
+const TIER_FLOOR_BOTH = 3_000_000;
+const TIER_FLOOR_SPOTIFY = 2_000_000;
+const TIER_FLOOR_SC = 1_000_000;
 
 /**
- * Compute one artist's popularity contribution. Pulled out so both the
- * unfollowed-tier (weighted by POPULARITY_WEIGHT) and the followed-tier
- * (raw, used for in-tier ranking) call the same code.
+ * Compute one artist's popularity contribution. Same recipe as 5.6.6.
+ * Pulled out so each tier can use the same value as its in-tier
+ * ranker.
  *
  * Per-artist signal:
- *   - spotify_popularity (raw 0–100). NOTE: Spotify's Nov-2024 API
- *     policy change dropped `popularity` from /artists/{id} responses
- *     for apps without Extended Quota Mode. Every Spotify-linked
- *     artist in the DB has popularity = 0 today. Term kept so a future
- *     Last.fm or manual-tier backfill picks up automatically.
- *   - soundcloud_followers, log2-scaled × 2. log2(1M) ≈ 20, × 2 = 40.
+ *   - spotify_popularity (raw 0–100; dead in DB post Spotify Nov-2024
+ *     API change — kept for forward-compat).
+ *   - soundcloud_followers, log2-scaled × 2.
  *   - bandcamp_followers, same shape.
  *   - HEADLINER_BOOST multiplier when is_headliner.
  */
@@ -139,66 +139,77 @@ function artistPopularity(a: ScorableEvent['lineup'][number]): number {
  * Score an event for the feed sort. Higher = ranks earlier within the
  * day group.
  *
- * Sort tiers (high-to-low):
- *   1. Followed-artist events: FOLLOWED_TIER_FLOOR + summed-popularity.
- *      Among themselves, sort by lineup popularity. Genre-pref ignored
- *      in this tier because the explicit follow signal is stronger.
- *   2. Unfollowed events: POPULARITY_WEIGHT × summed-popularity +
- *      GENRE_PREF_WEIGHT × genre-pref match count.
+ * Tiers (high-to-low):
+ *   1. Both Spotify AND SC match anywhere in the lineup
+ *      → TIER_FLOOR_BOTH + summed-popularity
+ *   2. Spotify match (no SC match)
+ *      → TIER_FLOOR_SPOTIFY + summed-popularity
+ *   3. SC match (no Spotify match)
+ *      → TIER_FLOOR_SC + summed-popularity
+ *   4. No follow match
+ *      → POPULARITY_WEIGHT × summed-popularity +
+ *        GENRE_PREF_WEIGHT × genre-pref match count
+ *
+ * Note on Tier 0: the cross-platform match is event-level, not
+ * artist-level. Either of these qualifies the event as Tier 0:
+ *   - One artist on the lineup followed on both platforms
+ *   - Two different artists, one followed on each platform
+ * Both signal stronger overall affinity for the lineup than a
+ * single-platform match.
  *
  * Anon path / un-onboarded path:
- *   - `followedSoundcloudUsernames` undefined or empty → no event
- *     enters the followed tier; everyone competes on popularity +
- *     genre-pref.
- *   - `preferredGenres` undefined or empty → genre-pref term is 0;
- *     pure popularity sort.
- *   - Both empty → pure popularity sort. This is the un-signed-in
- *     browse experience and yields a sensible "biggest events first"
- *     ordering with no user signal.
+ *   - Empty Spotify follow set + empty SC follow set + empty preferred
+ *     genres → pure popularity sort, the un-signed-in browse experience.
  *
  * This function mutates nothing and reads only the structural fields
  * above, so it's safe to call during render. Keep it allocation-free
- * inside the inner loop — the client comparator runs it O(n log n)
- * per render.
+ * inside the inner loop — the client comparator runs it O(n log n) per
+ * render.
  */
 export function feedScore(
   event: ScorableEvent,
   followedSoundcloudUsernames?: Set<string>,
+  followedSpotifyArtistIds?: Set<string>,
   preferredGenres?: ReadonlySet<string>,
 ): number {
-  const hasFollows =
+  const hasScFollows =
     !!followedSoundcloudUsernames && followedSoundcloudUsernames.size > 0;
+  const hasSpotifyFollows =
+    !!followedSpotifyArtistIds && followedSpotifyArtistIds.size > 0;
   const hasGenrePrefs =
     !!preferredGenres && preferredGenres.size > 0;
 
   // Single pass over the lineup: accumulate summed popularity AND
-  // detect followed-tier membership in one loop. Followed detection
-  // short-circuits popularity accumulation NOT — we want the tier-2
-  // popularity contribution available even after we know we're in
-  // tier 1 (used as the in-tier ranker).
+  // detect tier membership in one loop.
   let popSum = 0;
-  let isFollowed = false;
+  let scMatched = false;
+  let spotifyMatched = false;
   for (const a of event.lineup) {
     popSum += artistPopularity(a);
 
     if (
-      hasFollows &&
-      !isFollowed &&
+      hasScFollows &&
+      !scMatched &&
       a.soundcloud_username &&
       followedSoundcloudUsernames!.has(a.soundcloud_username)
     ) {
-      isFollowed = true;
+      scMatched = true;
+    }
+    if (
+      hasSpotifyFollows &&
+      !spotifyMatched &&
+      a.spotify_id &&
+      followedSpotifyArtistIds!.has(a.spotify_id)
+    ) {
+      spotifyMatched = true;
     }
   }
 
-  if (isFollowed) {
-    return FOLLOWED_TIER_FLOOR + popSum;
-  }
+  if (scMatched && spotifyMatched) return TIER_FLOOR_BOTH + popSum;
+  if (spotifyMatched) return TIER_FLOOR_SPOTIFY + popSum;
+  if (scMatched) return TIER_FLOOR_SC + popSum;
 
-  // Genre-pref match count. Only computed for unfollowed events
-  // (followed-tier ignores it). Naked .has() on a Set; assumes the
-  // caller normalized casing — see the home page for the .toLowerCase()
-  // boundary that builds the Set.
+  // Tier 3 — no follow match. Genre-pref kicks in here per Phase 5.6.6.
   let genreMatches = 0;
   if (hasGenrePrefs) {
     for (const g of event.genres) {

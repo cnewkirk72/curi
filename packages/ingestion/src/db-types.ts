@@ -14,8 +14,6 @@ export type Json =
   | Json[]
 
 export type Database = {
-  // Allows to automatically instantiate createClient with right options
-  // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
     PostgrestVersion: "14.5"
   }
@@ -415,6 +413,8 @@ export type Database = {
           preferred_vibes: string[]
           soundcloud_last_synced_at: string | null
           soundcloud_username: string | null
+          spotify_last_synced_at: string | null
+          spotify_user_id: string | null
           updated_at: string
           user_id: string
         }
@@ -432,6 +432,8 @@ export type Database = {
           preferred_vibes?: string[]
           soundcloud_last_synced_at?: string | null
           soundcloud_username?: string | null
+          spotify_last_synced_at?: string | null
+          spotify_user_id?: string | null
           updated_at?: string
           user_id: string
         }
@@ -449,6 +451,8 @@ export type Database = {
           preferred_vibes?: string[]
           soundcloud_last_synced_at?: string | null
           soundcloud_username?: string | null
+          spotify_last_synced_at?: string | null
+          spotify_user_id?: string | null
           updated_at?: string
           user_id?: string
         }
@@ -499,6 +503,30 @@ export type Database = {
           display_name?: string | null
           followed_at?: string | null
           soundcloud_username?: string
+          synced_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      user_spotify_follows: {
+        Row: {
+          display_name: string | null
+          followed_at: string | null
+          spotify_artist_id: string
+          synced_at: string
+          user_id: string
+        }
+        Insert: {
+          display_name?: string | null
+          followed_at?: string | null
+          spotify_artist_id: string
+          synced_at?: string
+          user_id: string
+        }
+        Update: {
+          display_name?: string | null
+          followed_at?: string | null
+          spotify_artist_id?: string
           synced_at?: string
           user_id?: string
         }

@@ -1,16 +1,4 @@
 // Saved events feed.
-//
-// Renders the signed-in user's bookmarked events as a day-grouped
-// feed, same shape as the home feed but without the FilterBar
-// (intentional — the Saved list is already a curated slice, so
-// layering filters on top adds friction for no real gain at MVP).
-//
-// Auth gating: RLS on user_saves means anon viewers get [] from
-// getSavedEvents rather than a 403, so we use `supabase.auth.getUser`
-// as the source of truth for which of the three screens to render:
-//   - signed-out  → sign-in CTA (marketing-ish)
-//   - signed-in, empty list → empty state nudging them to browse
-//   - signed-in, with items → feed
 
 import Link from 'next/link';
 import { AppHeader } from '@/components/app-header';
@@ -18,7 +6,10 @@ import { BottomNav } from '@/components/bottom-nav';
 import { DesktopTopNav } from '@/components/desktop/desktop-top-nav';
 import { EventCard } from '@/components/event-card';
 import { getSavedEvents } from '@/lib/saves';
-import { getUserFollowedSoundcloudUsernames } from '@/lib/follows';
+import {
+  getUserFollowedSoundcloudUsernames,
+  getUserFollowedSpotifyArtistIds,
+} from '@/lib/follows';
 import { getUserPrefs } from '@/lib/preferences';
 import { feedScore } from '@/lib/enrichment';
 import { createClient } from '@/lib/supabase/server';
@@ -30,18 +21,10 @@ export const dynamic = 'force-dynamic';
 
 type DayGroup = { dayKey: string; events: FeedEvent[] };
 
-// Same grouping helper as the home feed. Kept local (not lifted to a
-// shared util) because a future /saved might want "grouped by save
-// date" and the shape would diverge — premature abstraction tax.
-//
-// Phase 5.7 — within-day sort matches the home feed: feedScore DESC
-// surfaces followed-artist events to the top of each day group, then
-// other saved events rank by summed-popularity + genre-pref match.
-// Tiebreak on starts_at then id keeps the order visually stable
-// when scores collide.
 function groupByDay(
   events: FeedEvent[],
   followedScUsernames: Set<string>,
+  followedSpotifyArtistIds: Set<string>,
   preferredGenres: ReadonlySet<string>,
 ): DayGroup[] {
   const buckets = new Map<string, FeedEvent[]>();
@@ -57,8 +40,18 @@ function groupByDay(
       dayKey,
       events: [...evs].sort((a, b) => {
         const diff =
-          feedScore(b, followedScUsernames, preferredGenres) -
-          feedScore(a, followedScUsernames, preferredGenres);
+          feedScore(
+            b,
+            followedScUsernames,
+            followedSpotifyArtistIds,
+            preferredGenres,
+          ) -
+          feedScore(
+            a,
+            followedScUsernames,
+            followedSpotifyArtistIds,
+            preferredGenres,
+          );
         if (diff !== 0) return diff;
         if (a.starts_at !== b.starts_at)
           return a.starts_at < b.starts_at ? -1 : 1;
@@ -70,33 +63,32 @@ function groupByDay(
 export default async function SavedPage() {
   const supabase = createClient();
 
-  // Fetch user + saved list + follow graph + prefs in parallel.
-  // getSavedEvents and getUserFollowedSoundcloudUsernames both return
-  // [] for anon viewers (RLS), but we still need the user object to
-  // branch the UI — an anon viewer gets a different screen than a
-  // signed-in user with zero saves. The follow graph is threaded into
-  // EventCard so the avatar follow-dot indicator surfaces consistently
-  // between /saved and the home feed (Phase 5.6). User prefs feed the
-  // genre-pref term in the within-day sort comparator (Phase 5.7) —
-  // anon viewers get [] for both signals so the comparator degrades
-  // to a pure-popularity sort.
-  const [savedEvents, followedScUsernames, prefs, {
-    data: { user },
-  }] = await Promise.all([
+  const [
+    savedEvents,
+    followedScUsernames,
+    followedSpotifyArtistIds,
+    prefs,
+    {
+      data: { user },
+    },
+  ] = await Promise.all([
     getSavedEvents(),
     getUserFollowedSoundcloudUsernames(),
+    getUserFollowedSpotifyArtistIds(),
     getUserPrefs(),
     supabase.auth.getUser(),
   ]);
 
-  // Build the Sets once at the page level rather than in <Feed> — Feed
-  // re-renders only when groups change (effectively never within a
-  // single page life), so the cost is the same either way and this
-  // keeps Feed's prop surface minimal.
   const followedScUsernameSet = new Set(followedScUsernames);
+  const followedSpotifyArtistIdSet = new Set(followedSpotifyArtistIds);
   const preferredGenresSet: ReadonlySet<string> = new Set(prefs.preferred_genres);
 
-  const groups = groupByDay(savedEvents, followedScUsernameSet, preferredGenresSet);
+  const groups = groupByDay(
+    savedEvents,
+    followedScUsernameSet,
+    followedSpotifyArtistIdSet,
+    preferredGenresSet,
+  );
   const total = savedEvents.length;
 
   return (
@@ -108,13 +100,9 @@ export default async function SavedPage() {
       <main
         className={cn(
           'relative mx-auto max-w-[430px] px-5 pb-28 pt-10',
-          // Desktop: widen to the same container as the feed so the
-          // two pages feel like siblings. No sidebar here — /saved is
-          // already a curated slice, so filters would be friction.
           'lg:max-w-5xl lg:px-8 lg:pb-16 lg:pt-10',
         )}
       >
-        {/* Ambient violet blob — mobile only, same reasoning as feed. */}
         <div
           aria-hidden
           className="pointer-events-none absolute -right-16 top-10 h-60 w-60 rounded-full bg-violet/15 blur-3xl animate-blob lg:hidden"
@@ -143,7 +131,11 @@ export default async function SavedPage() {
         ) : total === 0 ? (
           <EmptyState />
         ) : (
-          <Feed groups={groups} followedScUsernameSet={followedScUsernameSet} />
+          <Feed
+            groups={groups}
+            followedScUsernameSet={followedScUsernameSet}
+            followedSpotifyArtistIdSet={followedSpotifyArtistIdSet}
+          />
         )}
       </main>
 
@@ -152,14 +144,14 @@ export default async function SavedPage() {
   );
 }
 
-// ─── Sub-views ────────────────────────────────────────
-
 function Feed({
   groups,
   followedScUsernameSet,
+  followedSpotifyArtistIdSet,
 }: {
   groups: DayGroup[];
   followedScUsernameSet: Set<string>;
+  followedSpotifyArtistIdSet: Set<string>;
 }) {
   return (
     <div className="relative space-y-10">
@@ -179,23 +171,17 @@ function Feed({
           <div
             className={cn(
               'space-y-4',
-              // Desktop: match the home feed's responsive grid.
               'lg:grid lg:grid-cols-2 lg:gap-5 lg:space-y-0',
               'xl:grid-cols-3',
             )}
           >
             {events.map((ev) => (
-              // Every event on this screen is saved by definition, so
-              // `saved={true}` is hard-coded. signedIn is also true
-              // by construction — we only render Feed in that branch.
-              // followedSoundcloudUsernames threaded through so the
-              // "You follow [Artist]" caption renders consistently
-              // with the home feed.
               <EventCard
                 key={ev.id}
                 event={ev}
                 saved
                 followedSoundcloudUsernames={followedScUsernameSet}
+                followedSpotifyArtistIds={followedSpotifyArtistIdSet}
                 signedIn
               />
             ))}

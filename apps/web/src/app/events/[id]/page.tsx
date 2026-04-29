@@ -1,20 +1,4 @@
 // Event detail — the full single-event screen.
-//
-// Stack (top → bottom):
-//   Back link
-//   Hero image (or genre gradient fallback) + floating price pill
-//   Meta strip          day · time
-//   Title
-//   Venue meta line     name · neighborhood
-//   Genre chips         full list (not truncated like the card)
-//   Lineup              headliners + supporting, via <LineupList />
-//   Description         prose block, only if present
-//   Location card       venue info + "Open in Maps" CTA
-//   Get tickets CTA     pill button, in flow, only if ticket_url set
-//
-// Everything is `force-dynamic` because RLS evaluates per-request — a
-// future "signed-in-only" event row should reflect the viewer without
-// stale CDN caching.
 
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
@@ -27,7 +11,10 @@ import { LocationCard } from '@/components/location-card';
 import { SaveButton } from '@/components/save-button';
 import { getEventById } from '@/lib/events';
 import { isEventSaved } from '@/lib/saves';
-import { getUserFollowedSoundcloudUsernames } from '@/lib/follows';
+import {
+  getUserFollowedSoundcloudUsernames,
+  getUserFollowedSpotifyArtistIds,
+} from '@/lib/follows';
 import { createClient } from '@/lib/supabase/server';
 import { timeLabel, formatPrice, groupLabel, nycDayKey } from '@/lib/format';
 import { resolveHero } from '@/lib/hero-image';
@@ -35,9 +22,6 @@ import { cn } from '@/lib/utils';
 
 export const dynamic = 'force-dynamic';
 
-// Same deterministic fallback palette as the feed EventCard — keep
-// these in sync if you tweak one. (We'd lift into a shared helper
-// once it's used in a third place.)
 const GRADIENT_BY_GENRE: Record<string, string> = {
   techno: 'from-accent/35 via-accent/10 to-transparent',
   house: 'from-accent/35 via-accent/10 to-transparent',
@@ -65,33 +49,26 @@ export default async function EventDetailPage({
   const event = await getEventById(params.id);
   if (!event) notFound();
 
-  // Fetch the viewer's session, saved-state, and SoundCloud follow
-  // graph in parallel with the event body. `isEventSaved` returns
-  // false for anon viewers (RLS); `getUserFollowedSoundcloudUsernames`
-  // returns [] (Phase 5.6.6 — the LineupList renders no follow dots
-  // when the Set is empty, which is the correct anon-safe behavior).
-  // `signedIn` decides whether the Save button routes taps to /login.
   const supabase = createClient();
-  const [savedForViewer, followedScUsernames, {
-    data: { user },
-  }] = await Promise.all([
+  const [
+    savedForViewer,
+    followedScUsernames,
+    followedSpotifyArtistIds,
+    {
+      data: { user },
+    },
+  ] = await Promise.all([
     isEventSaved(params.id),
     getUserFollowedSoundcloudUsernames(),
+    getUserFollowedSpotifyArtistIds(),
     supabase.auth.getUser(),
   ]);
   const signedIn = !!user;
-  // Build the Set once at the page level; LineupList expects a Set so
-  // its per-row `isFollowed` check can run in O(1) without rebuilding
-  // per-render. Empty Set is the no-op path.
   const followedScUsernameSet = new Set(followedScUsernames);
+  const followedSpotifyArtistIdSet = new Set(followedSpotifyArtistIds);
 
   const price = formatPrice(event.price_min, event.price_max);
   const day = groupLabel(nycDayKey(event.starts_at));
-  // Same cascade as the home feed card — flyer → headliner avatar →
-  // any-lineup avatar → venue photo → gradient. Without this, the
-  // detail page rendered a bare gradient even when the feed card for
-  // the same event was already showing a headliner photo (e.g.
-  // WhoMadeWho on "The Moment Festival").
   const hero = resolveHero(event);
 
   return (
@@ -107,14 +84,9 @@ export default async function EventDetailPage({
           Back to feed
         </Link>
 
-        {/* ── Hero ───────────────────────────────────────────────── */}
         <section className="mt-6 animate-enter-up">
           <div className="relative aspect-[5/3] w-full overflow-hidden rounded-2xl shadow-card">
             {hero.kind !== 'none' ? (
-              // Raw <img> — next/image requires a remotePatterns allowlist
-              // for every CDN our scrapers might return, and we haven't
-              // catalogued those yet. Loaded eagerly since it's the LCP
-              // element for this route.
               <>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
@@ -123,16 +95,9 @@ export default async function EventDetailPage({
                   loading="eager"
                   className={cn(
                     'h-full w-full object-cover',
-                    // Spotify artist avatars are square headshots — anchor
-                    // to top so the face stays in frame at 5:3 (matches
-                    // the feed card behavior).
                     hero.kind === 'artist' && 'object-top',
                   )}
                 />
-                {/* Source-specific scrim + chip — same treatment as the
-                    feed card. Keeps it visually honest: an artist photo
-                    or a venue interior shouldn't be mistaken for the
-                    actual event flyer. */}
                 {hero.kind !== 'event' && (
                   <>
                     <div
@@ -168,7 +133,6 @@ export default async function EventDetailPage({
           </div>
         </section>
 
-        {/* ── Meta + title ───────────────────────────────────────── */}
         <section className="mt-6 space-y-3">
           <div className="text-2xs uppercase tracking-widest text-fg-muted tabular">
             {day} · {timeLabel(event.starts_at)}
@@ -198,11 +162,6 @@ export default async function EventDetailPage({
             </div>
           )}
 
-          {/* Save button sits in its own row below the chips so it has
-              breathing room on narrow phones. Inline variant (bordered
-              pill with label) — distinct from the tiny hero bookmark
-              on the feed card, which is tuned for thumb-tap density
-              rather than clarity. */}
           <div className="pt-2">
             <SaveButton
               eventId={event.id}
@@ -214,7 +173,6 @@ export default async function EventDetailPage({
           </div>
         </section>
 
-        {/* ── Lineup ─────────────────────────────────────────────── */}
         {event.lineup.length > 0 && (
           <section className="mt-10">
             <h2 className="mb-4 font-display text-2xs font-medium uppercase tracking-widest text-fg-muted">
@@ -223,20 +181,17 @@ export default async function EventDetailPage({
             <LineupList
               lineup={event.lineup}
               followedSoundcloudUsernames={followedScUsernameSet}
+              followedSpotifyArtistIds={followedSpotifyArtistIdSet}
             />
           </section>
         )}
 
-        {/* ── Description ────────────────────────────────────────── */}
         {event.description && (
           <section className="mt-10">
             <h2 className="mb-3 font-display text-2xs font-medium uppercase tracking-widest text-fg-muted">
               About
             </h2>
             <div className="curi-glass rounded-2xl p-5 shadow-card">
-              {/* whitespace-pre-line so scraped descriptions that
-                  preserve \n paragraph breaks render as paragraphs,
-                  without us having to run a markdown parser. */}
               <p className="whitespace-pre-line text-sm leading-relaxed text-fg-muted">
                 {event.description}
               </p>
@@ -244,7 +199,6 @@ export default async function EventDetailPage({
           </section>
         )}
 
-        {/* ── Location ──────────────────────────────────────────── */}
         {event.venue && (
           <section className="mt-10">
             <h2 className="mb-3 font-display text-2xs font-medium uppercase tracking-widest text-fg-muted">
@@ -254,7 +208,6 @@ export default async function EventDetailPage({
           </section>
         )}
 
-        {/* ── Ticket CTA ───────────────────────────────────────── */}
         {event.ticket_url && (
           <a
             href={event.ticket_url}
