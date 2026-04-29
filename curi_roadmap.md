@@ -987,6 +987,36 @@ or when next touching auth-gated tables; rewrite all 16 policies
 in the same pass so the project converges on the optimized form.
 Reference: [Supabase docs](https://supabase.com/docs/guides/database/postgres/row-level-security#call-functions-with-select).
 
+### curi.events OAuth verification + diagnostic-log strip (PR #5 tail)
+
+PR #5 (`b0298f6d`) hardened `signInWithGoogle` origin derivation
+after curi.events sign-in started silently falling back to Supabase
+Site URL — landing users on `/?code=` instead of `/auth/callback?code=`,
+no session cookie set. Root cause: `headers().get('origin')` returned
+empty on the Vercel custom-domain alias, producing a relative
+redirectTo that never matched Supabase's absolute-URL allowlist.
+
+Fix replaced the inline read with a `deriveOrigin()` helper that
+falls through `Origin` → `x-forwarded-host`+`x-forwarded-proto` →
+`Host`. Vercel edge always sets the x-forwarded-* pair, so the
+fallback is reliable on alias domains.
+
+Two follow-ups still owed:
+
+1. **Verify the fix.** Sign out + sign in on curi.events post-deploy.
+   Check Vercel function logs for `[signInWithGoogle] redirectTo: ...`
+   to confirm the computed value is `https://curi.events/auth/callback`
+   (not a relative path). Also verify no regression on curi.nyc.
+
+2. **Strip the diagnostic `console.log`** in `apps/web/src/lib/supabase/actions.ts`
+   once the issue is confirmed resolved. Intentionally left in PR #5
+   for runtime visibility during the rollout; a one-line removal
+   commit closes it out.
+
+Reference: PR #5, commit `b0298f6d`. The `deriveOrigin()` helper
+itself stays — it's a hardening that's worth keeping forever, not
+just for this incident.
+
 ### Cross-collaborator coordination note
 
 As of 2026-04-25 the repo has two direct-to-main contributors
