@@ -73,11 +73,11 @@ export function EventCard({
   saved?: boolean;
   /** Phase 5.6 — lowercased SoundCloud usernames the signed-in user
    *  follows. When provided, any lineup artist whose
-   *  `soundcloud_username` is in the set is surfaced via the
-   *  "You follow [Artist]" caption below the lineup row, so the
-   *  user can see *why* the event ranked where it did. Undefined or
-   *  empty set means we render the card without the badge — same
-   *  visual as anon viewers. */
+   *  `soundcloud_username` is in the set gets a small cyan presence
+   *  dot at the bottom-right corner of their avatar so the user can
+   *  see *why* the event ranked where it did (the boost is applied
+   *  upstream in `enrichmentScore`). Undefined or empty set renders
+   *  the card without dots — same visual as anon viewers. */
   followedSoundcloudUsernames?: Set<string>;
   /** Whether the viewer is signed in. Threaded in so the
    *  SaveButton can route unauth taps to /login instead of
@@ -90,21 +90,12 @@ export function EventCard({
   const moreCount = Math.max(0, event.lineup.length - lineup.length);
   const hero = resolveHero(event);
 
-  // Phase 5.6 — compute the followed-artist names for this card's
-  // lineup (full lineup, not the truncated 3 above — the badge
-  // should announce a follow even when that artist is past the
-  // visible-avatar cap). Skip the work entirely when the user has
-  // no follows so we don't pay an array allocation per card.
-  const followedInLineup =
-    followedSoundcloudUsernames && followedSoundcloudUsernames.size > 0
-      ? event.lineup
-          .filter(
-            (a) =>
-              a.soundcloud_username &&
-              followedSoundcloudUsernames.has(a.soundcloud_username),
-          )
-          .map((a) => a.name)
-      : [];
+  // Phase 5.6 — pre-compute "is this avatar followed?" once per card so
+  // the avatar map below can render a presence dot without re-checking
+  // the Set every iteration. Returns false fast on anon/no-follows
+  // paths (set is undefined or empty).
+  const hasFollows =
+    !!followedSoundcloudUsernames && followedSoundcloudUsernames.size > 0;
 
   return (
     <Link
@@ -219,29 +210,68 @@ export function EventCard({
             <div className="flex shrink-0 -space-x-1.5">
               {lineup.map((a) => {
                 const tone = avatarToneFor(a.name);
+                // Phase 5.6 — surface "you follow this artist" via a
+                // small cyan presence dot at the avatar's bottom-right
+                // corner instead of a caption row. Decoded instantly
+                // (Discord/Slack-style indicator); doesn't fight the
+                // existing avatar+name truncation; passes a11y rule
+                // `color-not-only` because it's a discrete shape with
+                // an aria-label on top of the brand color.
+                const isFollowed =
+                  hasFollows &&
+                  !!a.soundcloud_username &&
+                  followedSoundcloudUsernames!.has(a.soundcloud_username);
                 return (
-                  <div
-                    key={a.name}
-                    className={cn(
-                      'flex h-6 w-6 items-center justify-center overflow-hidden rounded-full border',
-                      'ring-2 ring-bg-base/90',
-                      'font-display text-[10px] font-semibold',
-                      // Only apply tinted fallback when we have no image —
-                      // otherwise the image fills the circle and the bg
-                      // class is wasted paint.
-                      !a.image_url && AVATAR_BG[tone],
-                    )}
-                  >
-                    {a.image_url ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={a.image_url}
-                        alt=""
-                        loading="lazy"
-                        className="h-full w-full object-cover"
+                  // The wrapping `relative` lets the dot absolute-
+                  // position outside the avatar's `overflow-hidden`
+                  // rounded clip without breaking the cluster's
+                  // negative-margin ring stack — the wrapper still
+                  // takes up the avatar's 24×24 footprint, so the
+                  // -space-x-1.5 spacing stays correct.
+                  <div key={a.name} className="relative">
+                    <div
+                      className={cn(
+                        'flex h-6 w-6 items-center justify-center overflow-hidden rounded-full border',
+                        'ring-2 ring-bg-base/90',
+                        'font-display text-[10px] font-semibold',
+                        // Only apply tinted fallback when we have no image —
+                        // otherwise the image fills the circle and the bg
+                        // class is wasted paint.
+                        !a.image_url && AVATAR_BG[tone],
+                      )}
+                    >
+                      {a.image_url ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={a.image_url}
+                          alt=""
+                          loading="lazy"
+                          className="h-full w-full object-cover"
+                        />
+                      ) : (
+                        initialsFor(a.name)
+                      )}
+                    </div>
+                    {isFollowed && (
+                      <span
+                        role="img"
+                        aria-label={`You follow ${a.name}`}
+                        className={cn(
+                          'pointer-events-none absolute -bottom-0.5 -right-0.5',
+                          'h-2 w-2 rounded-full bg-accent',
+                          // Inset ring matches the card background so
+                          // the dot reads as separated from the
+                          // avatar even on busy photo backgrounds.
+                          'ring-2 ring-bg-base',
+                          // Subtle cyan halo. Uses the smaller glow
+                          // token (16px / 0.25α) — same one SaveButton
+                          // and BottomNav use for active states. The
+                          // full `shadow-glow` (24px / 0.35α) would
+                          // halo larger than the avatar itself; -sm
+                          // keeps the indicator presence-dot subtle.
+                          'shadow-glow-sm',
+                        )}
                       />
-                    ) : (
-                      initialsFor(a.name)
                     )}
                   </div>
                 );
@@ -254,24 +284,6 @@ export function EventCard({
               )}
             </p>
           </div>
-        )}
-
-        {/* Phase 5.6 — "You follow [Artist]" caption. Surfaces *why*
-            this event got the follow-graph boost in the within-day
-            sort (see enrichmentScore). Cyan accent matches the brand
-            highlight; placement under the lineup row reads as an
-            annotation of that row rather than a separate UI element.
-            Truncates at 2 names with "+N" overflow so long lineups
-            don't push the card height around. */}
-        {followedInLineup.length > 0 && (
-          <p className="text-2xs font-medium text-accent">
-            <span className="text-accent/70">You follow </span>
-            {followedInLineup.length === 1
-              ? followedInLineup[0]
-              : followedInLineup.length === 2
-                ? followedInLineup.join(' · ')
-                : `${followedInLineup.slice(0, 2).join(' · ')} +${followedInLineup.length - 2}`}
-          </p>
         )}
 
         {genres.length > 0 && (
