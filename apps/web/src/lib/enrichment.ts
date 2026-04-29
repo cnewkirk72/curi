@@ -27,6 +27,12 @@ type EnrichableEvent = {
     soundcloud_followers: number | null;
     bandcamp_url: string | null;
     bandcamp_followers: number | null;
+    // Phase 5.6 — lowercased SC profile slug. Used as the join key
+    // against the signed-in user's follow set when computing the
+    // FOLLOWED_ARTIST_BOOST. NULL when the artist has no SC URL or
+    // the URL didn't match the strict profile-URL regex during the
+    // 0022 backfill (see migration header for misses).
+    soundcloud_username: string | null;
   }>;
 };
 
@@ -50,6 +56,24 @@ const POPULARITY_WEIGHT = 3;
  * ahead of a similarly-sized support act.
  */
 const HEADLINER_BOOST = 1.25;
+
+/**
+ * Phase 5.6 — flat additive bonus per matched followed artist in the
+ * lineup. Sized so that ANY followed event outranks the most popular
+ * unfollowed event: typical popularity-term contribution is bounded
+ * around log2(1M followers) × 2 × HEADLINER_BOOST × POPULARITY_WEIGHT
+ * ≈ 50 × 1.25 × 3 ≈ 188. A single non-headliner match (1000) crushes
+ * that comfortably; multiple matches stack additively (so an event
+ * with 3 followed artists ranks above an event with 1).
+ *
+ * Headliner matches multiply by HEADLINER_BOOST so the same artist
+ * billed top-of-card pulls slightly ahead of a sub-billing.
+ *
+ * Unlike popularity (which uses MAX over the lineup), the follow
+ * boost is summed — "more of the artists you follow are on this
+ * lineup" is a directly stronger signal than "one of them is."
+ */
+const FOLLOWED_ARTIST_BOOST = 1000;
 
 /**
  * "How enriched is this event?" — a hybrid signal used to sort events
@@ -77,6 +101,16 @@ const HEADLINER_BOOST = 1.25;
  *     headliner. Using MAX rather than SUM means one major act
  *     outranks a long bill of mid-tier acts, which matches how
  *     people actually think about "is this show big."
+ *   - follow boost (Phase 5.6): SUM over the lineup of
+ *     FOLLOWED_ARTIST_BOOST per artist whose `soundcloud_username` is
+ *     in the signed-in user's follow set, with HEADLINER_BOOST applied
+ *     for headliner matches. Sums (not max) because "more of the artists
+ *     I follow are on this lineup" is a directly stronger signal — and
+ *     the magnitude is sized so any followed event outranks every
+ *     unfollowed event (see FOLLOWED_ARTIST_BOOST docstring above).
+ *     The set parameter is optional; passing undefined or an empty Set
+ *     yields the original (Phase 4) behavior so anon viewers get the
+ *     same feed they did before this phase.
  *
  * Note on `spotify_popularity`: Spotify's Nov-2024 API policy change
  * dropped `popularity`, `followers`, and `genres` from /artists/{id}
@@ -89,7 +123,10 @@ const HEADLINER_BOOST = 1.25;
  * This function mutates nothing and reads only the structural fields
  * above, so it's safe to call during render.
  */
-export function enrichmentScore(event: EnrichableEvent): number {
+export function enrichmentScore(
+  event: EnrichableEvent,
+  followedSoundcloudUsernames?: Set<string>,
+): number {
   const lineup = event.lineup;
 
   const hasAnyLink = lineup.some(
@@ -100,7 +137,13 @@ export function enrichmentScore(event: EnrichableEvent): number {
   );
   const completeness = (hasAnyLink ? 10 : 0) + (event.image_url ? 5 : 0);
 
+  // Treat an empty/undefined set as "no follow signal at all" so we
+  // can skip the per-artist Set.has() lookup entirely on anon paths.
+  const hasFollows =
+    !!followedSoundcloudUsernames && followedSoundcloudUsernames.size > 0;
+
   let topArtistPop = 0;
+  let followBoost = 0;
   for (const a of lineup) {
     let pop = a.spotify_popularity ?? 0;
     if (a.soundcloud_followers) {
@@ -111,7 +154,21 @@ export function enrichmentScore(event: EnrichableEvent): number {
     }
     if (a.is_headliner) pop *= HEADLINER_BOOST;
     if (pop > topArtistPop) topArtistPop = pop;
+
+    // Follow-graph match. Username is stored lowercased at write time
+    // (migration 0022 backfill + scraper insert path), so naked equality
+    // on the Set is correct without a per-call .toLowerCase() — keeps
+    // the inner loop allocation-free.
+    if (
+      hasFollows &&
+      a.soundcloud_username &&
+      followedSoundcloudUsernames!.has(a.soundcloud_username)
+    ) {
+      followBoost += a.is_headliner
+        ? FOLLOWED_ARTIST_BOOST * HEADLINER_BOOST
+        : FOLLOWED_ARTIST_BOOST;
+    }
   }
 
-  return completeness + topArtistPop * POPULARITY_WEIGHT;
+  return completeness + topArtistPop * POPULARITY_WEIGHT + followBoost;
 }

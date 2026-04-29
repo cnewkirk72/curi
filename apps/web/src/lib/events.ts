@@ -40,6 +40,14 @@ export type LineupArtist = {
   soundcloud_followers: number | null;
   bandcamp_url: string | null;
   bandcamp_followers: number | null;
+  // Phase 5.6 — normalized lowercased SoundCloud profile slug from
+  // migration 0022. Join key for the user's follow-graph in
+  // user_soundcloud_follows; consumed by the FOLLOWED_ARTIST_BOOST
+  // path in enrichmentScore() and by the "You follow [Artist]" badge
+  // on EventCard. NULL when the artist has no soundcloud_url, or
+  // when the URL didn't match the strict profile-URL regex at
+  // backfill time (see migration 0022 header for the 8-row miss list).
+  soundcloud_username: string | null;
 };
 
 /**
@@ -146,6 +154,7 @@ type EventRow = {
           spotify_popularity: number | null;
           soundcloud_url: string | null;
           soundcloud_followers: number | null;
+          soundcloud_username: string | null;
           bandcamp_url: string | null;
           bandcamp_followers: number | null;
         } | null;
@@ -224,6 +233,7 @@ export async function getUpcomingEvents({
           spotify_popularity,
           soundcloud_url,
           soundcloud_followers,
+          soundcloud_username,
           bandcamp_url,
           bandcamp_followers
         )
@@ -443,6 +453,7 @@ export async function getUpcomingEvents({
         spotify_popularity: ea.artist?.spotify_popularity ?? null,
         soundcloud_url: ea.artist?.soundcloud_url ?? null,
         soundcloud_followers: ea.artist?.soundcloud_followers ?? null,
+        soundcloud_username: ea.artist?.soundcloud_username ?? null,
         bandcamp_url: ea.artist?.bandcamp_url ?? null,
         bandcamp_followers: ea.artist?.bandcamp_followers ?? null,
       }))
@@ -493,6 +504,7 @@ type EventDetailDbRow = {
           spotify_popularity: number | null;
           soundcloud_url: string | null;
           soundcloud_followers: number | null;
+          soundcloud_username: string | null;
           bandcamp_url: string | null;
           bandcamp_followers: number | null;
         } | null;
@@ -550,6 +562,7 @@ export async function getEventById(id: string): Promise<DetailEvent | null> {
           spotify_popularity,
           soundcloud_url,
           soundcloud_followers,
+          soundcloud_username,
           bandcamp_url,
           bandcamp_followers
         )
@@ -608,6 +621,7 @@ export async function getEventById(id: string): Promise<DetailEvent | null> {
         spotify_popularity: ea.artist?.spotify_popularity ?? null,
         soundcloud_url: ea.artist?.soundcloud_url ?? null,
         soundcloud_followers: ea.artist?.soundcloud_followers ?? null,
+        soundcloud_username: ea.artist?.soundcloud_username ?? null,
         bandcamp_url: ea.artist?.bandcamp_url ?? null,
         bandcamp_followers: ea.artist?.bandcamp_followers ?? null,
       }))

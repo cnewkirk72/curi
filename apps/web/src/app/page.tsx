@@ -17,6 +17,7 @@ import { DesktopActiveSearchChip } from '@/components/desktop/desktop-active-sea
 import { InfiniteFeed } from '@/components/infinite-feed';
 import { getUpcomingEvents } from '@/lib/events';
 import { getSavedEventIds } from '@/lib/saves';
+import { getUserFollowedSoundcloudUsernames } from '@/lib/follows';
 import { getUserPrefs } from '@/lib/preferences';
 import { getActiveSearchLabels } from '@/lib/active-search-labels';
 import { createClient } from '@/lib/supabase/server';
@@ -65,24 +66,31 @@ export default async function HomePage({
 }) {
   const filters = parseFilters(searchParamsAdapter(searchParams));
 
-  // Fire the four reads in parallel — they don't depend on each
-  // other. Auth + saved-ids both fail soft for anon viewers (RLS
-  // returns [] rather than 403), so the `signedIn` check is the
-  // canonical "show saved state?" predicate. user_prefs read is
-  // Phase 3.18 — drives the personalized genre/vibe ordering in
+  // Fire the reads in parallel — they don't depend on each other.
+  // Auth + saved-ids + follow graph all fail soft for anon viewers
+  // (RLS returns [] rather than 403), so the `signedIn` check is
+  // the canonical "show saved state?" predicate. user_prefs read
+  // is Phase 3.18 — drives the personalized genre/vibe ordering in
   // the desktop sidebar (RLS returns DEFAULT_PREFS for anon
   // viewers, harmless).
+  //
+  // Phase 5.6 — followedSoundcloudUsernames feeds the within-day
+  // sort boost (enrichmentScore) and the EventCard "You follow
+  // [Artist]" caption. Empty array for anon viewers and for users
+  // who haven't connected SC yet, which is the no-op path the
+  // existing pre-5.6 code took anyway.
   const supabase = createClient();
   // Phase 6.3 — getActiveSearchLabels resolves `?artist=<slug>` and
   // `?venue=<slug>` to display names. Both lookups hit unique-indexed
   // columns and run inside the helper's own Promise.all, so adding it
   // here costs one round-trip in parallel with the rest of the page
   // load. Returns nulls for unresolvable slugs (chip won't render).
-  const [events, savedIds, prefs, {
+  const [events, savedIds, followedScUsernames, prefs, {
     data: { user },
   }, searchLabels] = await Promise.all([
     getUpcomingEvents({ limit: INITIAL_PAGE_SIZE, filters }),
     getSavedEventIds(),
+    getUserFollowedSoundcloudUsernames(),
     getUserPrefs(),
     supabase.auth.getUser(),
     getActiveSearchLabels(filters.artist, filters.venue),
@@ -153,7 +161,7 @@ export default async function HomePage({
           <DesktopSidebarFilters userPrefs={sidebarPrefs} />
         </div>
 
-        {/* Feed column ─────────────────────────────────────────────────── */}
+        {/* Feed column ────────────────────────────────────────────── */}
         <div className="min-w-0 lg:col-start-2">
           {/* Hero title — adapts to the active date filter so the
               feed's framing stays honest when a user has narrowed
@@ -197,6 +205,7 @@ export default async function HomePage({
               initialHasMore={events.length === INITIAL_PAGE_SIZE}
               filters={filters}
               savedIds={[...savedIds]}
+              followedSoundcloudUsernames={followedScUsernames}
               signedIn={signedIn}
             />
           )}
@@ -208,7 +217,7 @@ export default async function HomePage({
   );
 }
 
-// ─── Empty state ─────────────────────────────────────────────────────────────────
+// ─── Empty state ─────────────────────────────────────────────────────────────────────
 
 function EmptyState({ filtered }: { filtered: boolean }) {
   if (filtered) {

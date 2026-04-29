@@ -35,6 +35,16 @@ type Props = {
   /** Serialized on the server to dodge Set serialization — we rebuild
    * the Set here with useMemo. */
   savedIds: string[];
+  /** Phase 5.6 — lowercased SoundCloud usernames the signed-in user
+   * follows. Same array-on-the-wire / Set-in-the-component pattern
+   * as `savedIds`. Empty array for anon viewers and for signed-in
+   * users who haven't connected SoundCloud yet, which short-circuits
+   * the boost path in `enrichmentScore` to the pre-Phase-5.6 sort.
+   * Stays static for the lifetime of this component instance — the
+   * server fetches it once at page-load and we don't refresh on
+   * pagination (load-more-events doesn't need it; the boost is
+   * applied client-side from this prop). */
+  followedSoundcloudUsernames: string[];
   signedIn: boolean;
 };
 
@@ -45,6 +55,7 @@ export function InfiniteFeed({
   initialHasMore,
   filters,
   savedIds,
+  followedSoundcloudUsernames,
   signedIn,
 }: Props) {
   const [events, setEvents] = useState<FeedEvent[]>(initialEvents);
@@ -60,6 +71,15 @@ export function InfiniteFeed({
 
   // Rebuild the Set on the client. Cheap — savedIds is typically < 50.
   const savedIdSet = useMemo(() => new Set(savedIds), [savedIds]);
+  // Phase 5.6 — same pattern for the follow set. Username count is
+  // typically a few hundred per power user; Set construction stays
+  // negligible. Read by both the within-day sort comparator below
+  // (via enrichmentScore) and by EventCard's "You follow [Artist]"
+  // caption.
+  const followedScUsernameSet = useMemo(
+    () => new Set(followedSoundcloudUsernames),
+    [followedSoundcloudUsernames],
+  );
 
   const loadNext = useCallback(async () => {
     if (inflightRef.current || !hasMore) return;
@@ -127,7 +147,10 @@ export function InfiniteFeed({
     return () => observer.disconnect();
   }, [loadNext, hasMore]);
 
-  const groups = useMemo(() => groupByDay(events), [events]);
+  const groups = useMemo(
+    () => groupByDay(events, followedScUsernameSet),
+    [events, followedScUsernameSet],
+  );
 
   return (
     <div className="relative space-y-10">
@@ -156,6 +179,7 @@ export function InfiniteFeed({
                 key={ev.id}
                 event={ev}
                 saved={savedIdSet.has(ev.id)}
+                followedSoundcloudUsernames={followedScUsernameSet}
                 signedIn={signedIn}
               />
             ))}
@@ -210,7 +234,17 @@ export function InfiniteFeed({
 // richest events (artist links, hero image, popular lineup) surface
 // to the top. Day ordering stays chronological — keyset pagination
 // depends on that invariant and we don't touch it.
-function groupByDay(events: FeedEvent[]): DayGroup[] {
+//
+// Phase 5.6 — `followedScUsernames` is threaded through to
+// enrichmentScore so events with a followed-artist match in their
+// lineup ride a flat boost (sized to top any unfollowed event). The
+// Set is closed-over by the comparator rather than re-built per call,
+// and computed once via useMemo at the parent — this keeps the inner
+// loop allocation-free during the day-bucket sort.
+function groupByDay(
+  events: FeedEvent[],
+  followedScUsernames: Set<string>,
+): DayGroup[] {
   const buckets = new Map<string, FeedEvent[]>();
   for (const ev of events) {
     const key = nycDayKey(ev.starts_at);
@@ -228,7 +262,9 @@ function groupByDay(events: FeedEvent[]): DayGroup[] {
       // equally-enriched events — keeps the feed visually stable when
       // scores tie (e.g. two events with no enrichment data at all).
       events: [...evs].sort((a, b) => {
-        const diff = enrichmentScore(b) - enrichmentScore(a);
+        const diff =
+          enrichmentScore(b, followedScUsernames) -
+          enrichmentScore(a, followedScUsernames);
         if (diff !== 0) return diff;
         if (a.starts_at !== b.starts_at)
           return a.starts_at < b.starts_at ? -1 : 1;
