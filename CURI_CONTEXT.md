@@ -265,9 +265,9 @@ some scraper-junk still occasionally slips through (see "Sharp edges").
 
 ---
 
-## Current status (as of 2026-04-27)
+## Current status (as of 2026-04-28)
 
-### Phase 6 (desktop + discovery polish) — partial ship
+### Phase 6 (desktop + discovery polish) — 6.3 v2 actively in progress
 
 - **6.1 — Desktop responsive refactor — shipped.** Sticky left
   filter sidebar at `lg`+ breakpoint (`apps/web/src/components/desktop/
@@ -289,9 +289,16 @@ some scraper-junk still occasionally slips through (see "Sharp edges").
   component (`apps/web/src/components/global-search.tsx`, commit
   `87ced38`) that debounces input by 350ms and pushes a `?q=` URL
   param; `getUpcomingEvents` adds a server-side `ilike` on
-  `events.title` (LIKE-meta-escaped). **Title-only.** The richer
-  Phase 6.3 spec (cross-artist + cross-venue typeahead with
-  result preview) is still open — see "Tabled" below.
+  `events.title` (LIKE-meta-escaped). **Title-only.**
+- **6.3 v2 — Smart search with live previews — actively in progress.**
+  Replaces the title-only ilike with cross-entity typeahead: events
+  (max 10) + artists (max 5) + venues (max 3) returned in one Postgres
+  RPC `search_suggestions(q text)` backed by `pg_trgm` GIN indexes for
+  typo tolerance. Entity detection adds a "Show events with [Artist]"
+  button (violet pill) and "Show events at [Venue]" button (amber
+  pill). New `?artist=<slug>` and `?venue=<slug>` URL params plumbed
+  through `serializeFilters` / `parseFilters`. Subtasks 6.3.2–6.3.6
+  shipped; remaining work is the final wiring + a11y polish.
 
 ### Phase 3 polish + maintenance — multiple shipped
 
@@ -349,23 +356,94 @@ personalized feed lands cleanly:
   a new session correctly re-checks. `/auth/callback` short-circuits
   the middleware hop by inspecting `onboarding_completed_at`
   directly and routing to `/onboarding` or `/events` (or `next`).
-- **5.3 — Sorting options (popularity / preference overlap / time-
-  decay weighting) is NOT shipped** in this phase. Deferred to a
-  follow-up — needs an `events.popularity_score` numeric column
-  plus a ranking path in `events.ts`. Flagged here so the roadmap
-  entry doesn't read as complete when it isn't.
+- **5.3 — Sorting options — superseded by 5.6.** The original
+  popularity / preference / time-decay spec was reframed in
+  late 2026-04 around social-graph signals instead. SC and
+  Spotify follow imports are higher-leverage personalization than a
+  generic popularity score. The 5.3 spec is preserved in
+  `curi_roadmap.md` for reference only; revisit only if 5.6
+  underdelivers for SC-disconnected users.
+- **5.6 — SoundCloud follow-graph personalized sort — actively in
+  progress.** Username-only connect on `/profile`; imports the user's
+  public SC follow graph and uses lineup overlap as a within-day sort
+  signal with a "you follow [Artist]" badge. SC api-v2 with anon
+  `client_id` first, Playwright headless fallback. Hybrid refresh
+  (immediate sync + Sunday cron + lazy invalidation). 5–7 day estimate;
+  blocks on 6.3 v2 shipping first. Full subtask spec lives in
+  `curi_roadmap.md` §5.6.
+- **5.7 — Spotify follow-graph personalized sort — queued after 5.6.**
+  Architecturally distinct from 5.6: uses a **single Curi-side bot
+  service-account `sp_dc` cookie** + per-user Spotify username. OAuth
+  was ruled out (Spotify capped non-approved apps at 5 dev users in
+  Feb 2026); pathfinder anon tokens were ruled out (don't authorize
+  `queryArtistsFollowed`); per-user cookie paste was ruled out (high
+  friction + heavy security commitment). Bot account works because
+  Spotify treats followed-artists as readable to any authenticated
+  viewer when the target's profile is public. Full spec in
+  `curi_roadmap.md` §5.7. 4–5 day estimate.
+- **5.8 — Ingestion source expansion — queued after 5.7.** Two new
+  sources: Ticketmaster Discovery API (`tm-nyc`, `dmaId=345`,
+  Ahmed has a working prototype — clean ship) and Eventbrite (needs a
+  1–2h scoping spike first since their public search API may have
+  been deprecated post-2020).
 
 ### Phase 4 is complete + Phase 4f.1 closes the avatar gap
 
-- **1863 artists enriched** (1478 → 1863 over Phase 4f.7/4f.8 + Phase
-  3.16 cross-source dedup absorbing more shows). ~99.6% have genres +
-  subgenres + vibes populated.
+- **~1880 artists enriched post-cleanup** (1478 → 1896 over Phase
+  4f.7/4f.8/4f.9 + Phase 3.16 cross-source dedup; minus 28 phantom
+  rows deleted across 4f.8 + 4f.10 audit-cleanup passes). ~99.6%
+  have genres + subgenres + vibes populated.
 - **Spotify data on 700 artists** (38% of catalog).
 - **Events re-aggregated.** 714 upcoming events, 664 have rolled-up
   genres (93%).
 - **UI shipped** (commit `a9f8ca3`): artist avatars in `EventCard`,
   popularity badges in `LineupList`, Spotify images via the nested
   PostgREST select in `saves.ts` + `events.ts`.
+
+#### 4f.7–4f.10 — Artist-table audit infrastructure + phantom cleanup — shipped (rolled up to 2026-04-28)
+
+Four iterative passes building a hardened deny architecture against
+scraper-leaked event titles in the artists table.
+
+- **4f.7** — Spotify rate-limit catchup after the burn (resumed
+  2026-04-23 at concurrency 2; remaining queue cleared in ~4 min
+  without re-burning the window).
+- **4f.8** — Audit infrastructure: `audit.ts` (read-only categorize)
+  + `audit-cleanup.ts` (per-category apply with backup). First
+  pattern expansion in `EVENT_WORD_PATTERNS` + `NOISE_EXACT`.
+  ~13 garbage rows deleted with cascade.
+- **4f.9** — Bare-genre noise rows + the `parr?ty` typo-tolerant
+  pattern across all "X party" matchers. Plural-weekday recurring
+  series (must have a tail) and the `EXCLUDED_RA_VENUE_IDS` set
+  to keep one canonical row per event.
+- **4f.10 — Holistic pattern expansion + enrichment-signal rescue —
+  shipped 2026-04-28 (PR #2, commit `3f65ceb`).** Three-tier
+  architecture:
+  - **Tier 1** — ~25 new patterns in `EVENT_WORD_PATTERNS` covering
+    after-/day-/warehouse-party shapes, double-`party` titles,
+    singular-weekday + genre bigrams, drag/silent-disco/bingo,
+    decade-throwback (`like it's 2016`), locality fragments,
+    airline/customer-service spam tells, leading `**`.
+  - **Tier 2** — replaced the dead `spotify_popularity ≥ 20` rescue
+    gate in `audit.ts` with an enrichment-signal gate: any row
+    flagged by Tier 1 with `spotify_url` set OR mb-derived
+    `genres`/`subgenres` populated routes to `spotify_protected`
+    for manual review instead of deletion. Validated against 1896
+    prod rows: **100% of pattern-caught phantoms have neither
+    signal**, so the rescue keeps real artists safe without
+    protecting any phantom.
+  - **Tier 3** — `ACT_NAME_SUFFIXES` + `recoverFromActName` so
+    RA-style "Ellen Allien All Night Long" → "Ellen Allien"
+    recovers the artist instead of dropping the row. Suffixes
+    anchored to end-of-string to avoid mid-name false positives.
+  - **Tier 4** — loosened `SERIES_PREFIX` in `parseArtists` to
+    handle single-act tails like "Wednesday JAmZZ: Alican Bekoglu
+    Quartet" (gated on prefix-token count ≤ 4 AND tail-token
+    count 2–6).
+
+  Post-merge audit (2026-04-28): 15 → `non_artist_names` (deleted
+  via `audit:cleanup --apply`), 75 → `spotify_protected` (manual
+  review, **deferred** — see "Tabled" punch list).
 
 #### 4f.1 — SoundCloud + Bandcamp avatar fallback — shipped (2026-04-25)
 
@@ -581,6 +659,19 @@ matters for the picker, that's the place to look.
   get empty genres/popularity/followers back from `/v1/artists/{id}`.
   Curi's app pre-dates the cutoff; if we ever re-register, we lose that
   signal. Preserve the current app credentials.
+- **`artists.spotify_popularity` is universally null/zero in prod.**
+  Despite Curi's app pre-dating the Nov 2024 cutoff, the column never
+  got backfilled with valid values for the existing rows. Distribution
+  as of 2026-04-28: 1,072 null + 824 zero + 0 positive. Any audit /
+  ranking gate that relies on it is dead code. Use `spotify_url`
+  presence or follower-based signals instead. The dead gate in
+  `audit.ts` was replaced in Phase 4f.10.
+- **Spotify OAuth user-follow-read is unviable for any user-scale
+  feature.** Spotify's Nov 2024 / Feb 2026 changes capped non-approved
+  apps at 5 OAuth users hand-allowlisted in the developer dashboard.
+  Extended-quota approval requires commercial-traction review Curi
+  won't pass. If a feature needs follow-graph data, use the
+  bot-service-account architecture from Phase 5.7 spec, not OAuth.
 - **MusicBrainz is noisy for underground NYC acts.** Don't treat MB
   tags as authoritative — the LLM layer is the source of truth for tags.
 - **`last_enriched_at` bumps on every enrichment.** If running a
@@ -640,6 +731,14 @@ lives in `curi_roadmap.md`. That doc prioritizes them into phases by lift.
 
 In priority order:
 
+0. `carryover.md` (if present) — most recent session's handoff.
+   Active priorities, deferred items, and implementation strategy
+   for whatever's next on the roadmap.
+0a. `curi_architecture.md` — system map prose-mirror of
+   `architecture-visual.html`. Read when you need to know how a
+   specific tier connects to others, or where a module lives.
+0b. `curi_roadmap.md` — phase-by-phase plan with full 5.6 / 5.7 /
+   5.8 specs.
 1. `README.md` — stack, local dev, deploy, architecture diagram
 2. `packages/ingestion/src/backfill-run.ts` — the orchestrator, reads
    like a table of contents for the enrichment pipeline
@@ -652,11 +751,14 @@ In priority order:
 6. `supabase/migrations/0013_profiles_and_avatars.sql` +
    `0014_user_prefs_onboarding.sql` — the Phase 5 schema changes
    (profiles/OAuth trigger/avatars Storage, then user_prefs
-   extensions for onboarding state). Migrations `0015`–`0020` cover
+   extensions for onboarding state). Migrations `0015`–`0022` cover
    the dedup function, venue.image_url, events.setting, the genre
-   cleanup remap, the user_prefs preferred_setting split, and the
-   SC/BC artist external image columns. Next sequential migration
-   is `0021`.
+   cleanup remap, the user_prefs preferred_setting split, the
+   SC/BC artist external image columns, the Phase 6.3 v2
+   search_suggestions RPC + pg_trgm indexes (`0021`), and the
+   Phase 5.6.3 SoundCloud follow-graph schema (`0022` —
+   user_soundcloud_follows table, user_prefs/artists.soundcloud_username
+   columns + backfill). Next sequential migration is `0023`.
 7. `apps/web/src/app/onboarding/onboarding-flow.tsx` — the client
    state machine that orchestrates the 5-step onboarding, plus
    the co-located `actions.ts` for the server-action surface

@@ -21,6 +21,12 @@ shell + native Google Sign-In + TestFlight v0.1.1, 2026-04-27). See
   user's SC follow graph as a ranking signal in the within-day
   re-sort. Repurposes (and effectively supersedes) Phase 5.3.
 
+**Queued immediately after 5.6 (2026-04-28):**
+- **Phase 5.7** — Spotify-following personalized sort via OAuth
+  `user-follow-read` scope (mirrors 5.6 UX, no scraping).
+- **Phase 5.8** — Ingestion source expansion: Ticketmaster Discovery
+  API (`tm-nyc`) + Eventbrite (post scoping spike).
+
 ---
 
 ## Phase 5 — Personalization foundations
@@ -226,6 +232,250 @@ with zero changes to keyset cursor or server-side ordering.
   invalidation hook on app open
 
 Estimate: 5–7 days end-to-end, blocking on 6.3 shipping first.
+
+### 5.7 Spotify-following personalized sort — **planned (immediately follows 5.6)**
+
+Mirror of 5.6 for Spotify users. The user connects Spotify on
+`/profile`, Curi imports their followed artists, and lineup matches
+boost the within-day sort exactly the same way SC follows do.
+
+**Auth approach: single Curi-side service-account cookie + per-user
+username. Mirrors 5.6's UX exactly.** Earlier specs explored three
+alternatives that all failed scoping:
+
+- **OAuth `user-follow-read` rejected.** Spotify's Nov 2024 / Feb
+  2026 changes capped non-approved apps at **5 OAuth users**
+  (down from 25 after Nov 2024). Extended-quota approval requires
+  a commercial-traction review Curi won't pass at this stage.
+- **Anonymous-token GraphQL rejected.** Spotify's pathfinder anon
+  token authorizes *public* resources (artist pages, search) but
+  rejects `queryArtistsFollowed` — that operation requires a real
+  authenticated viewer session, not just permission to view a
+  public page.
+- **Per-user `sp_dc` cookie paste rejected.** Originally specced
+  as the MVP path; ruled out because (a) every Spotify user who
+  connects would have to extract their own cookie from DevTools
+  every ~3–6 months when their session rotates, (b) storing a 1-
+  year full-account credential per user is a heavy security
+  commitment (KMS, audit logs, disclosure), and (c) it's
+  unnecessary given the actual access model below.
+
+**Key insight: Spotify treats followed-artists lists as readable
+to *any authenticated viewer* when the target user's profile is
+public.** When you log into Spotify and navigate to
+`spotify.com/user/{anyone}/following`, Spotify serves that target
+user's followed-artists list to your session. The cookie identifies
+the viewer, not the target. So Curi only needs **one** authenticated
+session — its own — to read followed-artists for any user whose
+profile is set to public.
+
+**Mainline path: bot service account + pathfinder GraphQL.** Curi
+maintains a dedicated Spotify "bot" account (a throwaway, *not*
+Christian's personal Spotify — see ban risk below). The bot's
+`sp_dc` cookie lives in Curi's server-side env / admin config.
+Christian re-pastes it ~yearly when it expires.
+
+Per-user sync flow:
+
+1. User enters their Spotify username on `/profile` connect card.
+2. Curi server uses bot's `sp_dc` to mint a session token via
+   `https://open.spotify.com/api/token`.
+3. Curi POSTs to `api-partner.spotify.com/pathfinder/v1/query`
+   with `operationName=queryArtistsFollowed`,
+   `variables={uri:"spotify:user:{user_username}"}`,
+   `extensions.persistedQuery.sha256Hash=<known-hash>`, bot's
+   Bearer token in `Authorization`.
+4. Receive clean JSON: artist ID, name, image URL, follower count.
+   Paginate with `offset` + `limit=100`.
+5. Stored under `user_id` in `user_spotify_follows`. Background
+   re-sync runs through the same flow.
+
+**UX flow** — identical shape to 5.6:
+
+- Connect card: single text input (`open.spotify.com/user/`
+  prefix label, editable username), no Save button until typing
+  begins. Inline helper text: *"Make sure your Spotify profile
+  is set to public so Curi can see your followed artists."*
+  Link to the relevant Spotify privacy settings page.
+- Save / sync / status-bar / refresh flow copy-paste from 5.6
+  with copy-strings adjusted ("Imported 234 artists you follow
+  on Spotify").
+- Error path: pathfinder returns empty for valid username →
+  *"Couldn't find any followed artists for `{username}`. Make
+  sure your profile is public in Spotify privacy settings."*
+
+**Schema (clean — no per-user secrets):**
+
+```sql
+create table user_spotify_follows (
+  user_id uuid references auth.users(id) on delete cascade,
+  spotify_artist_id text not null,
+  display_name text,
+  followed_at timestamptz,
+  synced_at timestamptz default now(),
+  primary key (user_id, spotify_artist_id)
+);
+
+alter table user_prefs
+  add column spotify_username text,
+  add column spotify_last_synced_at timestamptz;
+```
+
+`artists.spotify_id` already exists from enrichment work, so joins
+from `event_artists → artists.spotify_id → user_spotify_follows`
+are supported as-is.
+
+**Bot cookie storage.** Single env var `SPOTIFY_BOT_SP_DC` on
+Railway (or KMS-encrypted entry in an admin-config table —
+Supabase Vault works). Never returned in API responses, never
+logged, never included in client-bound payloads. When it expires
+(token mint returns 401), an alert pages Christian via
+Slack/email so he can re-paste before users notice.
+
+**Playwright fallback.** If pathfinder ever stops accepting
+bot-cookie-derived tokens for cross-profile reads, fall back to
+server-side Playwright with the bot's cookie set: navigate to
+`open.spotify.com/user/{username}/following`, scroll-simulate,
+scrape DOM. Same fallback architecture as 5.6's SC path.
+Scaffolded but not deployed unless needed.
+
+**Sort integration.** Same `enrichmentScore` boost mechanism as
+5.6. A second `followedSpotifyArtistIds: Set<string>` parameter
+alongside the SC set; both contribute the same
+`FOLLOWED_ARTIST_BOOST` constant so the two signals stack cleanly
+when a user has both connected. Card badge: "you follow [Artist]
+on Spotify" / "on SoundCloud" / "on both" depending on which sets
+matched.
+
+**Subtasks:**
+
+- 5.7.1 Bot account provisioning: create dedicated Spotify
+  account, document the cookie-extraction + Railway env-var
+  rotation procedure in `OPS.md`. Set up healthcheck cron that
+  pings token mint daily and pages on 401.
+- 5.7.2 Pathfinder client: bot-cookie → token mint → paginated
+  `queryArtistsFollowed{uri}`. Includes the persisted-query hash
+  resolver for the rotation case.
+- 5.7.3 Schema migration: `user_spotify_follows` +
+  `user_prefs.spotify_*` columns. No KMS work needed (no per-user
+  secrets).
+- 5.7.4 Profile UI: connect card + privacy-helper copy + status
+  bar. Mirrors 5.6.1 verbatim with copy strings adjusted.
+- 5.7.5 Sort integration: extend `enrichmentScore` to accept
+  Spotify-follow set; update card badge logic.
+- 5.7.6 Background refresh: weekly cron + lazy invalidation hook
+  (piggyback on 5.6's cron). Throttle to ~1–2 req/sec across all
+  user syncs to stay under bot-account rate budget.
+- 5.7.7 Playwright fallback scaffolded but gated off.
+- 5.7.8 *Parallel track:* file Spotify extended-quota application.
+  If approved later, layer OAuth `user-follow-read` as a *secondary*
+  auth path so individual users can opt into a more compliant
+  connection if they want.
+
+**Open questions / risks:**
+
+- **Bot-account ban risk.** A single Spotify account fetching
+  hundreds of different user URIs' followed-artists looks like
+  scraping to Spotify's behavioral classifier. Mitigations:
+  (a) dedicated throwaway account (NOT Christian's personal —
+  losing it to a ban shouldn't lose his music account); (b)
+  rate-throttle to 1–2 req/sec; (c) spread daily background
+  re-syncs across the 24-hour window instead of bursting at
+  cron-time; (d) if banned, recovery is "create new bot account,
+  re-paste cookie" — feature down for ~10 minutes, no user data
+  loss.
+- **Shared rate budget.** All user syncs hit one token bucket.
+  Fine at MVP scale (50–500 users). At 5k+ users, may need a
+  queue or multiple rotating bot accounts. Defer until usage
+  justifies.
+- **Bot-cookie expiry monitoring is critical.** When the cookie
+  invalidates, every user's sync starts failing silently. The
+  daily healthcheck cron in 5.7.1 must page Christian within 24
+  hours of any 401.
+- **Public-profile requirement may surprise users.** Spotify
+  defaults profile public for new accounts but power-users often
+  flip it private. Quick poll of early-access Curi users on
+  acceptance before weighting the feature heavily.
+- **ToS posture.** Technically scraping per Spotify ToS §7. The
+  bot-account model is closer to traditional bot scraping than
+  per-user cookie use would have been (where the user is "doing
+  what they could do themselves"). Real-world enforcement at
+  Curi's scale is rare but non-zero. Acceptable for MVP; revisit
+  if Spotify ever sends a takedown.
+- **Persisted-query hash rotation.** Same handling as SC's
+  `client_id` case — extract from page bundle on 400/401, retry
+  once.
+
+Estimate: 4–5 days end-to-end. Larger than 5.6's SC path because
+the bot-account healthcheck + Railway env-var rotation procedure
+are new infra concerns the SC path didn't have, but smaller than
+the per-user-cookie spec since there's no KMS/audit-log work.
+
+### 5.8 Ingestion source expansion — **planned (Ticketmaster + Eventbrite)**
+
+Two new sources to broaden NYC event coverage beyond the current set
+(Public Records, Nowadays, Elsewhere, RA-NYC). Both run inside the
+existing daily 10:00 UTC Railway cron via the same `Scraper`
+interface as the rest of `packages/ingestion/src/scrapers/*`.
+
+**5.8.1 Ticketmaster Discovery API — `tm-nyc`**
+
+Free tier (5000 calls/day) is plenty for daily polling. Ahmed has
+already prototyped the API integration locally; this task wires it
+into the cron and the dedup pipeline.
+
+- Endpoint: `https://app.ticketmaster.com/discovery/v2/events.json`
+- Required params: `classificationName=music&dmaId=345` (NYC DMA).
+  Without this, the music classification still includes stadium
+  country tours, comedy, and theater — all noise for Curi.
+- Rate limit: 5 requests/second (well within budget for a daily
+  paginated pull).
+- Source slug: `tm-nyc` (matches `ra-nyc` convention).
+- Dedup: relies on the existing pre-insert venue+day+fingerprint
+  gate (#34) since the same event will frequently appear on both
+  TM and RA-NYC. No new dedup logic needed.
+- Coverage: complements existing scrapers well — TM dominates the
+  larger rooms (Brooklyn Steel, Music Hall of Williamsburg,
+  Knockdown Center, Webster Hall, Bowery Ballroom) that the current
+  curated venue scrapers don't cover.
+- Future tightening: if noise ratio is too high after launch, add a
+  venue allowlist by Ticketmaster `_embedded.venues[].id`. Start
+  without one; let the user-side filters handle relevance.
+
+**5.8.2 Eventbrite — scoping spike required first**
+
+Christian's note: "open API - free, accessible." This may be
+outdated — Eventbrite restricted public search in 2019/2020. The
+`events/search` endpoint that previously allowed location/category
+queries was deprecated for new apps; existing apps lost access. The
+current public API mostly exposes events under organizers you
+control, or events you already know the ID of.
+
+**Spike (1–2 hours, blocks 5.8.2 implementation):**
+
+- Test `https://www.eventbriteapi.com/v3/events/search/?location.address=brooklyn`
+  with Ahmed's token. Document what comes back.
+- If it works → ship as a Scraper using the public API.
+- If it returns deprecation/404 → scope a scraper for the public
+  site (server-rendered HTML, similar playbook to `publicrecords.nyc`).
+  Eventbrite's `/d/ny--brooklyn/all-events/` listing pages are
+  scrape-friendly.
+- Marketing-partner program is option C — formal, slow, overkill
+  for an MVP source.
+
+**Subtasks (post-spike):**
+
+- 5.8.1 Implement `tm-nyc` Scraper; wire into `runScrapers()` cohort;
+  verify dedup against `ra-nyc` for overlap days
+- 5.8.2a Eventbrite scoping spike — verify which API path works
+- 5.8.2b Implement `eventbrite-nyc` Scraper using whichever path the
+  spike validated
+- 5.8.3 Cron-duration sanity check after both ship; current daily
+  run is comfortably under Railway's timeout but worth re-baselining
+
+Estimate: 2 days for `tm-nyc` (Ahmed's prototype reduces the lift),
+plus 0.5 day spike + 1–2 days for Eventbrite depending on spike
+outcome.
 
 ---
 
@@ -580,9 +830,12 @@ demand is proven.
   Railway cron for any new enrichment passes, Supabase for storage.
   No new hosts.
 - **Schema migrations get numbered sequentially.** Next available is
-  `0021_*`. Recent additions: 0015 dedup function, 0016 venue.image_url,
+  `0023_*`. Recent additions: 0015 dedup function, 0016 venue.image_url,
   0017 events.setting, 0018 genre cleanup + remap, 0019 user_prefs
-  preferred_setting split, 0020 artist external images (SC/BC).
+  preferred_setting split, 0020 artist external images (SC/BC),
+  0021 search_suggestions (Phase 6.3 v2 pg_trgm + RPC),
+  0022 soundcloud_follows (Phase 5.6.3 — user_soundcloud_follows table,
+  user_prefs/artists.soundcloud_username columns + index + backfill).
   Migrations don't get rewritten; if a change is wrong, it's
   superseded by the next numbered migration.
 - **User-facing ML stays simple.** Tag-overlap scoring, exponential
@@ -641,6 +894,34 @@ half of the underground heuristic without rerunning LLM enrichment.
   `audit-cleanup.ts --category=non_artist_names --apply`. ~13 garbage
   artist rows deleted with audit backup; cascaded `event_artists`
   deletes handled cleanly.
+- **4f.10 — Holistic phantom-pattern expansion + dead-gate fix — done
+  (2026-04-28).** PR #2 squash-merged as `3f65ceb`. Added ~25 new
+  `EVENT_WORD_PATTERNS` (after-/day-/warehouse-party shapes,
+  double-`party` titles, singular-weekday + genre bigrams,
+  drag/silent-disco/bingo, decade-throwback, locality fragments,
+  airline/customer-service spam tells), `parr?ty` typo tolerance
+  throughout, `ACT_NAME_SUFFIXES` + `recoverFromActName` so RA-style
+  "Ellen Allien All Night Long" recovers the artist instead of
+  dropping the row, and a loosened `SERIES_PREFIX` strip for
+  single-act tails. Replaced the dead `spotify_popularity ≥ 20`
+  rescue gate in `audit.ts` with an enrichment-signal gate
+  (`spotify_url` OR `mb_tags`) since Spotify's Nov 2024 API change
+  made popularity universally null. Post-merge audit (1896 rows):
+  15 → `non_artist_names` (delete), 75 → `spotify_protected`
+  (manual review), down from 56 phantoms under the old patterns.
+  Cleanup applied via `audit:cleanup --category=non_artist_names
+  --apply`.
+
+  **Follow-up review item:** the 75 `spotify_protected` rows are
+  higher than expected — pre-ship validation against the OLD pattern
+  set found 0 rescues, but the expanded patterns naturally catch
+  more rows that do have enrichment signal. Need to scan the JSON
+  `categories.spotify_protected.rows` list and decide whether (a)
+  most are real artists (rescue gate is doing its job, ship as-is),
+  (b) some are phantoms with fuzzy MB matches (tighten gate to
+  `spotify_url AND mb_tags`, or hand-curate), or (c) the patterns
+  themselves need narrowing for specific phrases. Defer until
+  Phase 5.6 prep so we don't churn on this mid-flight.
 
 ### Phase 4f.1 + 4f.1.1 — both shipped
 
@@ -684,6 +965,27 @@ the var is set in Railway env before the next nightly cron, or the
 ingestion run will throw at startup. Local dev: `.env.example`
 points to `Curi/0.1 (your-contact@example.com)` as a placeholder,
 override per-developer.
+
+### RLS `auth_rls_initplan` optimization — deferred (post-0022 hygiene pass)
+
+Supabase's performance linter flags every `auth.uid() = user_id`
+predicate in our RLS policies as suboptimal: at scale, Postgres
+re-evaluates `auth.uid()` per row instead of once per query. The
+fix is wrapping in a subquery — `(select auth.uid()) = user_id` —
+which the planner caches as an InitPlan.
+
+Migration `0022_soundcloud_follows` introduced four new policies
+on `user_soundcloud_follows` that hit this warning. The same
+warning fires on the existing 12 policies across `user_prefs`,
+`profiles`, and `user_saves`, so this is an inherited project-wide
+pattern, not a regression from 0022.
+
+Deferred — not blocking 5.6 or anything user-visible. Currently at
+MVP scale where per-row re-evaluation is invisible. Fold into a
+0023 `optimize_rls_initplan` migration when scale starts mattering
+or when next touching auth-gated tables; rewrite all 16 policies
+in the same pass so the project converges on the optimized form.
+Reference: [Supabase docs](https://supabase.com/docs/guides/database/postgres/row-level-security#call-functions-with-select).
 
 ### Cross-collaborator coordination note
 
