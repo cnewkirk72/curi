@@ -19,11 +19,13 @@ import { BottomNav } from '@/components/bottom-nav';
 import { DesktopTopNav } from '@/components/desktop/desktop-top-nav';
 import { PreferencesForm } from '@/components/preferences-form';
 import { ProfileForm } from '@/components/profile-form';
+import { SoundcloudConnectCard } from '@/components/profile/soundcloud-connect-card';
 import { createClient } from '@/lib/supabase/server';
 import { signOut } from '@/lib/supabase/actions';
 import { getSaveCount } from '@/lib/saves';
 import { getUserPrefs } from '@/lib/preferences';
 import { getMyProfile } from '@/lib/profile';
+import { getSoundcloudConnection } from '@/lib/soundcloud-connection';
 
 export const dynamic = 'force-dynamic';
 
@@ -37,13 +39,18 @@ export default async function ProfilePage() {
   if (!user) redirect('/login?next=/profile');
 
   // Count is cheap (head+count only — see getSaveCount), prefs is a
-  // single row lookup, profile is a single row lookup. All three are
-  // auth-gated by RLS so they run *after* we know there's a session,
-  // but they're independent of each other — parallelize.
-  const [saveCount, prefs, profile] = await Promise.all([
+  // single row lookup, profile is a single row lookup, and the SC
+  // connection state is a 2-column projection of the same prefs row
+  // we read above (kept in a separate fetcher rather than folded into
+  // getUserPrefs to avoid widening the UserPrefs type that PreferencesForm
+  // depends on). All four are auth-gated by RLS so they run *after* we
+  // know there's a session, but they're independent of each other —
+  // parallelize.
+  const [saveCount, prefs, profile, scConnection] = await Promise.all([
     getSaveCount(),
     getUserPrefs(),
     getMyProfile(),
+    getSoundcloudConnection(),
   ]);
 
   // Google OAuth stores the profile picture under two different keys
@@ -117,7 +124,7 @@ export default async function ProfilePage() {
           </div>
         </div>
 
-        {/* ── Stats / shortcuts ───────────────────────── */}
+        {/* ── Stats / shortcuts ──────────────────────────────── */}
         <section className="mt-6">
           <h3 className="mb-3 font-display text-2xs font-medium uppercase tracking-widest text-fg-muted">
             Your activity
@@ -141,7 +148,7 @@ export default async function ProfilePage() {
           </Link>
         </section>
 
-        {/* ── Identity editor ──────────────────────────── */}
+        {/* ── Identity editor ──────────────────────────────────── */}
         {/* Always render even when `profile` is null — getMyProfile
             returns null if the handle_new_user trigger failed. The
             form falls back to empty strings as drafts, so saving
@@ -163,7 +170,17 @@ export default async function ProfilePage() {
           emailFallback={user.email ?? null}
         />
 
-        {/* ── Preferences ────────────────────────────── */}
+        {/* ── SoundCloud follow-graph connect (Phase 5.6.1) ──
+            Lives between the identity editor and the taste prefs so
+            the "wire up an external account" mental category sits
+            visually next to the OAuth identity card above it, while
+            the within-Curi taste sliders stay grouped below. */}
+        <SoundcloudConnectCard
+          initialUsername={scConnection.username}
+          initialLastSyncedAt={scConnection.lastSyncedAt}
+        />
+
+        {/* ── Preferences ───────────────────────────────── */}
         <PreferencesForm initial={prefs} />
 
         <form action={signOut} className="mt-8">
