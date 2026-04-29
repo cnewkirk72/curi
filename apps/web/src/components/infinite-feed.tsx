@@ -56,30 +56,13 @@ import { loadMoreEvents } from '@/app/actions/load-more-events';
 
 type Props = {
   initialEvents: FeedEvent[];
-  /** Phase 5.7 — followed-artist events in the date window that the
-   *  injector pulled in. Merged with `initialEvents` (de-duped by id)
-   *  for day-grouping purposes; never affects pagination cursor. */
-  initialFollowedExtras: FeedEvent[];
+  initialFollowedScExtras: FeedEvent[];
+  initialFollowedSpotifyExtras: FeedEvent[];
   initialHasMore: boolean;
   filters: FilterState;
-  /** Serialized on the server to dodge Set serialization — we rebuild
-   * the Set here with useMemo. */
   savedIds: string[];
-  /** Phase 5.6 — lowercased SoundCloud usernames the signed-in user
-   * follows. Same array-on-the-wire / Set-in-the-component pattern
-   * as `savedIds`. Empty array for anon viewers and for signed-in
-   * users who haven't connected SoundCloud yet, which short-circuits
-   * the boost path in `feedScore` to the pre-Phase-5.6 sort.
-   * Stays static for the lifetime of this component instance — the
-   * server fetches it once at page-load and we don't refresh on
-   * pagination (load-more-events doesn't need it; the boost is
-   * applied client-side from this prop). */
   followedSoundcloudUsernames: string[];
-  /** Phase 5.7 — user's preferred genres from user_prefs.preferred_genres.
-   *  Threaded into the comparator via feedScore. Empty array for anon
-   *  viewers and for signed-in users who haven't completed onboarding;
-   *  both degrade to a pure-popularity sort with no genre signal,
-   *  which is the correct anon-safe behavior. */
+  followedSpotifyArtistIds: string[];
   preferredGenres: string[];
   signedIn: boolean;
 };
@@ -88,46 +71,36 @@ type DayGroup = { dayKey: string; events: FeedEvent[] };
 
 export function InfiniteFeed({
   initialEvents,
-  initialFollowedExtras,
+  initialFollowedScExtras,
+  initialFollowedSpotifyExtras,
   initialHasMore,
   filters,
   savedIds,
   followedSoundcloudUsernames,
+  followedSpotifyArtistIds,
   preferredGenres,
   signedIn,
 }: Props) {
-  // Phase 5.7 — split state. `chronoEvents` is what pagination grows;
-  // `followedExtras` is the static injection. Day-grouping takes the
-  // union below.
   const [chronoEvents, setChronoEvents] = useState<FeedEvent[]>(initialEvents);
   const [hasMore, setHasMore] = useState<boolean>(initialHasMore);
   const [isPending, startTransition] = useTransition();
   const [errored, setErrored] = useState(false);
 
-  // Followed extras stay static — the date window is fixed for the
-  // life of this component instance. (FilterState changes remount via
-  // the parent's `key={feedKey}` cache-bust, so a "switch from Tomorrow
-  // to This Week" gets a fresh injection from the server.)
-  const followedExtras = initialFollowedExtras;
+  const followedScExtras = initialFollowedScExtras;
+  const followedSpotifyExtras = initialFollowedSpotifyExtras;
 
   const sentinelRef = useRef<HTMLDivElement | null>(null);
-  // Guard against duplicate fetches while one is inflight. `isPending`
-  // isn't enough because IntersectionObserver can fire again before
-  // startTransition's state update has settled.
   const inflightRef = useRef(false);
 
-  // Rebuild the Set on the client. Cheap — savedIds is typically < 50.
   const savedIdSet = useMemo(() => new Set(savedIds), [savedIds]);
-  // Phase 5.6 — same pattern for the follow set. Username count is
-  // typically a few hundred per power user; Set construction stays
-  // negligible. Read by both the within-day sort comparator below
-  // (via feedScore) and by EventCard's avatar follow-dot indicator.
   const followedScUsernameSet = useMemo(
     () => new Set(followedSoundcloudUsernames),
     [followedSoundcloudUsernames],
   );
-  // Phase 5.7 — preferred-genres set for the comparator's genre-pref
-  // term. ReadonlySet so misuse (mutation) trips type-check.
+  const followedSpotifyArtistIdSet = useMemo(
+    () => new Set(followedSpotifyArtistIds),
+    [followedSpotifyArtistIds],
+  );
   const preferredGenresSet = useMemo<ReadonlySet<string>>(
     () => new Set(preferredGenres),
     [preferredGenres],
@@ -135,11 +108,6 @@ export function InfiniteFeed({
 
   const loadNext = useCallback(async () => {
     if (inflightRef.current || !hasMore) return;
-    // Cursor anchored to `chronoEvents` tail (NOT the merged view).
-    // This is the keyset-cursor invariant — pagination continues from
-    // the chronologically-last item the server has already given us,
-    // not from a followedExtras item that might be chronologically
-    // way past the chrono boundary.
     const last = chronoEvents[chronoEvents.length - 1];
     if (!last) {
       setHasMore(false);
@@ -156,16 +124,10 @@ export function InfiniteFeed({
       const result = await loadMoreEvents({ filters, cursor });
       startTransition(() => {
         setChronoEvents((prev) => {
-          // Dedupe defensively — if the server somehow returns an
-          // event already in `prev` (shouldn't happen with keyset
-          // cursors, but ingestion races or clock skew could surface
-          // an edge case), filter it out rather than render duplicates.
           const seen = new Set(prev.map((e) => e.id));
           const fresh = result.events.filter((e) => !seen.has(e.id));
           return prev.concat(fresh);
         });
-        // If the server said no more, OR it returned zero new events
-        // (paranoia — all IDs already seen), stop observing.
         setHasMore(
           result.hasMore && result.events.some((e) => !chronoEvents.find((x) => x.id === e.id)),
         );
@@ -174,16 +136,11 @@ export function InfiniteFeed({
       // eslint-disable-next-line no-console
       console.error('[infinite-feed] loadMoreEvents failed:', err);
       setErrored(true);
-      // Don't clear hasMore — user can retry via the inline CTA.
     } finally {
       inflightRef.current = false;
     }
   }, [chronoEvents, filters, hasMore]);
 
-  // IntersectionObserver on the sentinel. `rootMargin: '400px'` fires
-  // the load ~400px before the sentinel enters the viewport so new
-  // cards appear by the time the user gets there — feels like a
-  // continuous scroll rather than a stutter.
   useEffect(() => {
     const el = sentinelRef.current;
     if (!el || !hasMore) return;
@@ -202,20 +159,40 @@ export function InfiniteFeed({
     return () => observer.disconnect();
   }, [loadNext, hasMore]);
 
-  // Merge chrono + followed extras for day-grouping. Dedup by id —
-  // any followed event that's also been pulled in by chronological
-  // pagination wins on chrono (preserves cursor invariant) and the
-  // duplicate is filtered out.
   const mergedEvents = useMemo(() => {
-    if (followedExtras.length === 0) return chronoEvents;
+    if (followedScExtras.length === 0 && followedSpotifyExtras.length === 0) {
+      return chronoEvents;
+    }
     const seen = new Set(chronoEvents.map((e) => e.id));
-    const extras = followedExtras.filter((e) => !seen.has(e.id));
-    return chronoEvents.concat(extras);
-  }, [chronoEvents, followedExtras]);
+    const scExtras: FeedEvent[] = [];
+    for (const e of followedScExtras) {
+      if (seen.has(e.id)) continue;
+      seen.add(e.id);
+      scExtras.push(e);
+    }
+    const spotifyExtras: FeedEvent[] = [];
+    for (const e of followedSpotifyExtras) {
+      if (seen.has(e.id)) continue;
+      seen.add(e.id);
+      spotifyExtras.push(e);
+    }
+    return chronoEvents.concat(scExtras, spotifyExtras);
+  }, [chronoEvents, followedScExtras, followedSpotifyExtras]);
 
   const groups = useMemo(
-    () => groupByDay(mergedEvents, followedScUsernameSet, preferredGenresSet),
-    [mergedEvents, followedScUsernameSet, preferredGenresSet],
+    () =>
+      groupByDay(
+        mergedEvents,
+        followedScUsernameSet,
+        followedSpotifyArtistIdSet,
+        preferredGenresSet,
+      ),
+    [
+      mergedEvents,
+      followedScUsernameSet,
+      followedSpotifyArtistIdSet,
+      preferredGenresSet,
+    ],
   );
 
   return (
@@ -246,6 +223,7 @@ export function InfiniteFeed({
                 event={ev}
                 saved={savedIdSet.has(ev.id)}
                 followedSoundcloudUsernames={followedScUsernameSet}
+                followedSpotifyArtistIds={followedSpotifyArtistIdSet}
                 signedIn={signedIn}
               />
             ))}
@@ -253,9 +231,6 @@ export function InfiniteFeed({
         </section>
       ))}
 
-      {/* Sentinel + tail states. The sentinel only exists when there's
-          actually more to load — otherwise we swap in an "end of feed"
-          caption (or nothing if the feed was empty to begin with). */}
       {hasMore ? (
         <div ref={sentinelRef} className="flex items-center justify-center py-8">
           {errored ? (
@@ -292,29 +267,10 @@ export function InfiniteFeed({
   );
 }
 
-// Group events by NYC calendar day. Same logic the server used to use
-// directly on the feed — lifted here since the client owns the
-// accumulated list once paging kicks in.
-//
-// Within each day bucket we re-sort by `feedScore` DESC so the
-// followed-artist events surface to the top, then unfollowed events
-// rank by summed-popularity + genre-pref-match. Day ordering stays
-// chronological — keyset pagination depends on that invariant and we
-// don't touch it.
-//
-// Phase 5.7 — `preferredGenres` is threaded into feedScore alongside
-// the follow set. Both sets are closed-over by the comparator rather
-// than re-built per call, and computed once via useMemo at the parent —
-// this keeps the inner comparator allocation-free during the day-bucket
-// sort.
-//
-// Tiebreak on starts_at then id matches the server's chronological
-// ordering for equally-scored events, keeping the feed visually stable
-// when scores tie (e.g. two events with identical lineup popularity
-// and no genre matches).
 function groupByDay(
   events: FeedEvent[],
   followedScUsernames: Set<string>,
+  followedSpotifyArtistIds: Set<string>,
   preferredGenres: ReadonlySet<string>,
 ): DayGroup[] {
   const buckets = new Map<string, FeedEvent[]>();
@@ -324,15 +280,24 @@ function groupByDay(
     if (list) list.push(ev);
     else buckets.set(key, [ev]);
   }
-  // ISO dayKey strings sort lexically == chronologically.
   return [...buckets.entries()]
     .sort((a, b) => (a[0] < b[0] ? -1 : 1))
     .map(([dayKey, evs]) => ({
       dayKey,
       events: [...evs].sort((a, b) => {
         const diff =
-          feedScore(b, followedScUsernames, preferredGenres) -
-          feedScore(a, followedScUsernames, preferredGenres);
+          feedScore(
+            b,
+            followedScUsernames,
+            followedSpotifyArtistIds,
+            preferredGenres,
+          ) -
+          feedScore(
+            a,
+            followedScUsernames,
+            followedSpotifyArtistIds,
+            preferredGenres,
+          );
         if (diff !== 0) return diff;
         if (a.starts_at !== b.starts_at)
           return a.starts_at < b.starts_at ? -1 : 1;
