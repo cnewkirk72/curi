@@ -19,6 +19,15 @@
 // `bot_auth_failed` and the connect card surfaces the appropriate
 // "we're having trouble" copy. The daily healthcheck cron should
 // have already paged Christian by the time a user hits this.
+//
+// Note: every export from a 'use server' module must be an async
+// function — Next.js rejects the build otherwise. `SyncResult` is a
+// type-only export which TS erases at compile time, so it slips past
+// the rule. `extractSpotifyUserId` is intentionally NOT exported even
+// though it's logically reusable; the smoke script at
+// packages/ingestion/scripts/test-spotify-follows.ts keeps an inline
+// copy, and any future consumer should also inline (or live in a
+// non-'use server' module that re-exports both).
 
 import { revalidatePath } from 'next/cache';
 import {
@@ -176,8 +185,13 @@ export async function syncSpotifyFollows(
  * Returns null when nothing recognizable as a Spotify user ID can be
  * extracted. Does NOT validate the ID against SPOTIFY_USER_ID_RE —
  * that's the caller's job.
+ *
+ * NOT exported — Next.js forbids non-async exports from a 'use server'
+ * module. If a future consumer needs this logic, copy it inline (the
+ * smoke script does) or extract to a separate non-'use server' helper
+ * file.
  */
-export function extractSpotifyUserId(raw: string): string | null {
+function extractSpotifyUserId(raw: string): string | null {
   const trimmed = raw.trim();
 
   // 1. spotify:user:{id} URI form.
