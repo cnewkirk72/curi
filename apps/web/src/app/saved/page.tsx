@@ -19,6 +19,8 @@ import { DesktopTopNav } from '@/components/desktop/desktop-top-nav';
 import { EventCard } from '@/components/event-card';
 import { getSavedEvents } from '@/lib/saves';
 import { getUserFollowedSoundcloudUsernames } from '@/lib/follows';
+import { getUserPrefs } from '@/lib/preferences';
+import { feedScore } from '@/lib/enrichment';
 import { createClient } from '@/lib/supabase/server';
 import { nycDayKey, groupLabel } from '@/lib/format';
 import type { FeedEvent } from '@/lib/events';
@@ -31,7 +33,17 @@ type DayGroup = { dayKey: string; events: FeedEvent[] };
 // Same grouping helper as the home feed. Kept local (not lifted to a
 // shared util) because a future /saved might want "grouped by save
 // date" and the shape would diverge — premature abstraction tax.
-function groupByDay(events: FeedEvent[]): DayGroup[] {
+//
+// Phase 5.7 — within-day sort matches the home feed: feedScore DESC
+// surfaces followed-artist events to the top of each day group, then
+// other saved events rank by summed-popularity + genre-pref match.
+// Tiebreak on starts_at then id keeps the order visually stable
+// when scores collide.
+function groupByDay(
+  events: FeedEvent[],
+  followedScUsernames: Set<string>,
+  preferredGenres: ReadonlySet<string>,
+): DayGroup[] {
   const buckets = new Map<string, FeedEvent[]>();
   for (const ev of events) {
     const key = nycDayKey(ev.starts_at);
@@ -41,34 +53,51 @@ function groupByDay(events: FeedEvent[]): DayGroup[] {
   }
   return [...buckets.entries()]
     .sort((a, b) => (a[0] < b[0] ? -1 : 1))
-    .map(([dayKey, events]) => ({ dayKey, events }));
+    .map(([dayKey, evs]) => ({
+      dayKey,
+      events: [...evs].sort((a, b) => {
+        const diff =
+          feedScore(b, followedScUsernames, preferredGenres) -
+          feedScore(a, followedScUsernames, preferredGenres);
+        if (diff !== 0) return diff;
+        if (a.starts_at !== b.starts_at)
+          return a.starts_at < b.starts_at ? -1 : 1;
+        return a.id < b.id ? -1 : 1;
+      }),
+    }));
 }
 
 export default async function SavedPage() {
   const supabase = createClient();
 
-  // Fetch user + saved list + follow graph in parallel. getSavedEvents
-  // and getUserFollowedSoundcloudUsernames both return [] for anon
-  // viewers (RLS), but we still need the user object to branch the
-  // UI — an anon viewer gets a different screen than a signed-in user
-  // with zero saves. The follow graph is threaded into EventCard so
-  // the "You follow [Artist]" caption surfaces consistently between
-  // /saved and the home feed (Phase 5.6).
-  const [savedEvents, followedScUsernames, {
+  // Fetch user + saved list + follow graph + prefs in parallel.
+  // getSavedEvents and getUserFollowedSoundcloudUsernames both return
+  // [] for anon viewers (RLS), but we still need the user object to
+  // branch the UI — an anon viewer gets a different screen than a
+  // signed-in user with zero saves. The follow graph is threaded into
+  // EventCard so the avatar follow-dot indicator surfaces consistently
+  // between /saved and the home feed (Phase 5.6). User prefs feed the
+  // genre-pref term in the within-day sort comparator (Phase 5.7) —
+  // anon viewers get [] for both signals so the comparator degrades
+  // to a pure-popularity sort.
+  const [savedEvents, followedScUsernames, prefs, {
     data: { user },
   }] = await Promise.all([
     getSavedEvents(),
     getUserFollowedSoundcloudUsernames(),
+    getUserPrefs(),
     supabase.auth.getUser(),
   ]);
 
-  const groups = groupByDay(savedEvents);
-  const total = savedEvents.length;
-  // Build the Set once at the page level rather than in <Feed> — Feed
+  // Build the Sets once at the page level rather than in <Feed> — Feed
   // re-renders only when groups change (effectively never within a
   // single page life), so the cost is the same either way and this
   // keeps Feed's prop surface minimal.
   const followedScUsernameSet = new Set(followedScUsernames);
+  const preferredGenresSet: ReadonlySet<string> = new Set(prefs.preferred_genres);
+
+  const groups = groupByDay(savedEvents, followedScUsernameSet, preferredGenresSet);
+  const total = savedEvents.length;
 
   return (
     <div className="relative min-h-dvh">
@@ -123,7 +152,7 @@ export default async function SavedPage() {
   );
 }
 
-// ─── Sub-views ───────────────────────────────────────
+// ─── Sub-views ────────────────────────────────────────
 
 function Feed({
   groups,

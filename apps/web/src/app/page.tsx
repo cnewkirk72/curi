@@ -17,7 +17,10 @@ import { DesktopActiveSearchChip } from '@/components/desktop/desktop-active-sea
 import { InfiniteFeed } from '@/components/infinite-feed';
 import { getUpcomingEvents } from '@/lib/events';
 import { getSavedEventIds } from '@/lib/saves';
-import { getUserFollowedSoundcloudUsernames } from '@/lib/follows';
+import {
+  getUserFollowedSoundcloudUsernames,
+  getFollowedEventsInWindow,
+} from '@/lib/follows';
 import { getUserPrefs } from '@/lib/preferences';
 import { getActiveSearchLabels } from '@/lib/active-search-labels';
 import { createClient } from '@/lib/supabase/server';
@@ -31,12 +34,17 @@ import {
 } from '@/lib/filters';
 import { GlobalSearch } from '@/components/global-search';
 
-// Initial SSR page size. Keep this small enough that the server
-// payload stays snappy and infinite scroll has room to demonstrate
-// itself, big enough that most users see 2-3 day groups before
-// needing to trigger a page. The client (<InfiniteFeed>) pages in
-// chunks of equal size from here on out.
-const INITIAL_PAGE_SIZE = 40;
+// Initial SSR page size. Bumped from 40 → 100 in Phase 5.7 because
+// the within-day sort is now popularity-driven (not chronological),
+// and a 40-event chrono cap meant late-in-day events — including
+// followed-artist events — could fall off the SSR'd page before the
+// client comparator got to re-rank them. 100 covers a typical NYC
+// single-day window in full and most multi-day windows comfortably,
+// while still keeping the SSR payload under ~80 KB. Pagination
+// kicks in for "all upcoming" past 100, and the
+// `getFollowedEventsInWindow` injection ensures followed events
+// always appear regardless of chronological position.
+const INITIAL_PAGE_SIZE = 100;
 
 // Re-fetch on each request during Phase 3. We'll revisit caching
 // (e.g. `revalidate: 60`) in Phase 3.12 once we see production
@@ -85,12 +93,22 @@ export default async function HomePage({
   // columns and run inside the helper's own Promise.all, so adding it
   // here costs one round-trip in parallel with the rest of the page
   // load. Returns nulls for unresolvable slugs (chip won't render).
-  const [events, savedIds, followedScUsernames, prefs, {
+  //
+  // Phase 5.7 — followed-events injection. We fetch the user's follow
+  // graph FIRST (so we have the username list to feed into the events
+  // injector), then run the chronological page + the followed-extras
+  // fetch in parallel. The injector uses the same date window as the
+  // main fetch but bypasses the page cap, ensuring followed events in
+  // the window always appear in the candidate pool regardless of
+  // chronological position. See lib/follows.ts → getFollowedEventsInWindow
+  // for the rationale.
+  const followedScUsernames = await getUserFollowedSoundcloudUsernames();
+  const [events, followedExtras, savedIds, prefs, {
     data: { user },
   }, searchLabels] = await Promise.all([
     getUpcomingEvents({ limit: INITIAL_PAGE_SIZE, filters }),
+    getFollowedEventsInWindow(filters, followedScUsernames),
     getSavedEventIds(),
-    getUserFollowedSoundcloudUsernames(),
     getUserPrefs(),
     supabase.auth.getUser(),
     getActiveSearchLabels(filters.artist, filters.venue),
@@ -161,7 +179,7 @@ export default async function HomePage({
           <DesktopSidebarFilters userPrefs={sidebarPrefs} />
         </div>
 
-        {/* Feed column ────────────────────────────────────────────── */}
+        {/* Feed column ──────────────────────────────────────────────────────────── */}
         <div className="min-w-0 lg:col-start-2">
           {/* Hero title — adapts to the active date filter so the
               feed's framing stays honest when a user has narrowed
@@ -196,16 +214,23 @@ export default async function HomePage({
             />
           </div>
 
-          {events.length === 0 ? (
+          {events.length === 0 && followedExtras.length === 0 ? (
             <EmptyState filtered={active} />
           ) : (
             <InfiniteFeed
               key={feedKey}
               initialEvents={events}
+              initialFollowedExtras={followedExtras}
               initialHasMore={events.length === INITIAL_PAGE_SIZE}
               filters={filters}
               savedIds={[...savedIds]}
               followedSoundcloudUsernames={followedScUsernames}
+              // Phase 5.7 — preferred genres feed into the within-day
+              // sort comparator via feedScore. Empty array for anon
+              // viewers and for signed-in users who haven't completed
+              // onboarding; both cases degrade to pure popularity
+              // sort, which is the correct anon-safe behavior.
+              preferredGenres={prefs.preferred_genres}
               signedIn={signedIn}
             />
           )}
@@ -217,7 +242,7 @@ export default async function HomePage({
   );
 }
 
-// ─── Empty state ─────────────────────────────────────────────────────────────────────
+// ─── Empty state ─────────────────────────────────────────────────────────────────────────
 
 function EmptyState({ filtered }: { filtered: boolean }) {
   if (filtered) {
