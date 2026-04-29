@@ -22,8 +22,14 @@
 //      novel ones land under a parent in taxonomy_subgenres.
 //
 // Backfill-run-only:
-//   - Paginated load of artists (default `WHERE last_enriched_at IS
-//     NULL`, full table on `--force`).
+//   - Paginated load of artists (default cohort: artists missing
+//     Spotify or popularity checks — i.e. `spotify_checked_at IS NULL
+//     OR popularity_checked_at IS NULL`. Full table on `--force`).
+//     Note: we deliberately do NOT filter on `last_enriched_at IS NULL`
+//     anymore — the MB-only daily cron stamps last_enriched_at on every
+//     artist after the MB pass, so that filter always returns zero in
+//     practice. The Spotify/popularity timestamps are the real "did the
+//     full pipeline run?" signal, identical to post-scrape-enrich.ts.
 //   - Optional `--limit` for dry runs.
 //   - JSON checkpoint after every artist (crash-resumable).
 //   - Verbose summary at the end (LLM confidence histogram, tier
@@ -43,6 +49,7 @@ import * as path from 'node:path';
 import {
   type Artist,
   type ArtistLog,
+  isLikelyEventTitle,
   loadEventContext,
   PAGE_SIZE,
   processArtist,
@@ -88,9 +95,15 @@ function parseArgs(argv: string[]): Args {
 }
 
 /**
- * Paginated load of artists, filtered to unenriched by default. Uses
- * .range() because Supabase silently caps unpaginated selects at 1000
- * rows — a bug we hit during the 4e dry run and are not repeating.
+ * Paginated load of artists, filtered to "needs full enrichment" by
+ * default — meaning `spotify_checked_at IS NULL OR popularity_checked_at
+ * IS NULL`. Uses .range() because Supabase silently caps unpaginated
+ * selects at 1000 rows — a bug we hit during the 4e dry run and are not
+ * repeating.
+ *
+ * On `--force` we load the full artists table (used for re-running over
+ * an already-enriched cohort, e.g. with `--skip-spotify` to re-run only
+ * the popularity-discovery pass).
  */
 async function loadArtistsPaginated(force: boolean): Promise<Artist[]> {
   const client = supabase();
@@ -99,11 +112,13 @@ async function loadArtistsPaginated(force: boolean): Promise<Artist[]> {
     let q = client
       .from('artists')
       .select(
-        'id, name, slug, mb_tags, last_enriched_at, soundcloud_url, bandcamp_url',
+        'id, name, slug, mb_tags, last_enriched_at, soundcloud_url, bandcamp_url, spotify_checked_at, popularity_checked_at',
       )
       .order('id', { ascending: true })
       .range(offset, offset + PAGE_SIZE - 1);
-    if (!force) q = q.is('last_enriched_at', null);
+    if (!force) {
+      q = q.or('spotify_checked_at.is.null,popularity_checked_at.is.null');
+    }
     const { data, error } = await q;
     if (error) throw error;
     const rows = (data ?? []) as unknown as Artist[];
@@ -117,11 +132,40 @@ async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
   console.log('Loading artists…');
   const allArtists = await loadArtistsPaginated(args.force);
-  const artists = args.limit ? allArtists.slice(0, args.limit) : allArtists;
+
+  // Triage filter: skip phantom-artist rows whose names look like event
+  // or party titles (scraper title-parser leakage). See
+  // isLikelyEventTitle() in enrich-artist.ts for the patterns.
+  const skipped: Array<{ name: string; reason: string }> = [];
+  const eligible: Artist[] = [];
+  for (const a of allArtists) {
+    const check = isLikelyEventTitle(a.name);
+    if (check.flagged) {
+      skipped.push({ name: a.name, reason: check.reason ?? 'unknown' });
+    } else {
+      eligible.push(a);
+    }
+  }
+  if (skipped.length > 0) {
+    console.log(
+      `Filtered ${skipped.length} likely event-title row(s) from cohort:`,
+    );
+    for (const s of skipped.slice(0, 20)) {
+      console.log(`  - ${s.name}  [${s.reason}]`);
+    }
+    if (skipped.length > 20) {
+      console.log(`  …and ${skipped.length - 20} more`);
+    }
+  }
+
+  const artists = args.limit ? eligible.slice(0, args.limit) : eligible;
   console.log(
-    `Loaded ${allArtists.length} artist${
-      args.force ? 's total' : 's without enrichment'
-    }${args.limit ? ` (limited to ${args.limit})` : ''}.`,
+    `Loaded ${eligible.length} artist${
+      args.force ? 's total' : 's needing full enrichment'
+    }${args.limit ? ` (limited to ${args.limit})` : ''}` +
+      (skipped.length > 0
+        ? ` (after filtering ${skipped.length} event titles).`
+        : '.'),
   );
   if (artists.length === 0) {
     console.log('Nothing to do. Exiting.');

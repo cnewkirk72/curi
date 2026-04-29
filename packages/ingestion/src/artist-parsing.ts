@@ -140,7 +140,7 @@ export const EVENT_WORD_PATTERNS: readonly RegExp[] = [
   /\bworkshop\b/i,
   /\bpanel(?:\s+discussion)?\b/i,
   /\bscreening\b/i,
-  /\blistening\s+(?:session|party|bar)\b/i,
+  /\blistening\s+(?:session|parr?ty|bar|experience|series|club)\b/i,
   /\bbook\s+(?:launch|release|reading)\b/i,
   /\bfilm\s+(?:screening|premiere)\b/i,
   /\bfundraiser\b/i,
@@ -163,11 +163,13 @@ export const EVENT_WORD_PATTERNS: readonly RegExp[] = [
 
   // "REGGAETON Boat Party NYC Yacht Cruise", "R&B Boat Ride Party Cruise".
   // Requires boat/yacht + event-descriptor. "Dr. Boat", "Boatshop" survive.
-  /\b(?:boat|yacht)\s+(?:party|cruise|ride)\b/i,
+  // `parr?ty` here and below tolerates the recurring "Parrty" / "Partty"
+  // misspelling that RA and Shotgun promoters use to game search.
+  /\b(?:boat|yacht)\s+(?:parr?ty|cruise|ride)\b/i,
 
   // "420 rooftop party", "Rooftop Saturdays - Afrobeats", etc.
   // Bare "rooftop" passes — requires a recurring-event descriptor after.
-  /\brooftop\s+(?:party|event|series|mondays?|tuesdays?|wednesdays?|thursdays?|fridays?|saturdays?|sundays?)\b/i,
+  /\brooftop\s+(?:parr?ty|event|series|mondays?|tuesdays?|wednesdays?|thursdays?|fridays?|saturdays?|sundays?)\b/i,
 
   // "Cinco De Mayo Boat Party Yacht Cruise" etc. Whole phrase, so no
   // false positive on an artist who happens to have "mayo" in their name.
@@ -179,11 +181,11 @@ export const EVENT_WORD_PATTERNS: readonly RegExp[] = [
 
   // "Reggae Dance Party NYC", "LET IT HAPPEN (TAME IMPALA DANCE PARTY)".
   // Anchored to the bigram — "party" alone is safe, "Party Favor" passes.
-  /\bdance\s+party\b/i,
+  /\bdance\s+parr?ty\b/i,
 
   // "Willie Colón Birthday Tribute", "TUPAC Hip Hop Yacht Party Notorious
   // Birthday Tribute Boat Cruise". Requires birthday + event descriptor.
-  /\bbirthday\s+(?:tribute|bash|party|celebration)\b/i,
+  /\bbirthday\s+(?:tribute|bash|parr?ty|celebration)\b/i,
 
   // Plural-weekday recurring series: "Rooftop Saturdays - Afrobeats",
   // "Reggaeton Rooftop Fridays - Friday", "Refuge Saturdays. Lineup TBA".
@@ -204,7 +206,7 @@ export const EVENT_WORD_PATTERNS: readonly RegExp[] = [
   // Genre + event-descriptor: "Reggaeton Party NYC", "Champagne Reggaeton
   // Party...". Targets a narrow bigram so "Reggaeton" alone (handled as
   // NOISE_EXACT) and legit Latin acts pass.
-  /\b(?:reggaeton|latin|afrobeats|hip\s*hop|r&b)\s+(?:rave|party|night|boat|dance)\b/i,
+  /\b(?:reggaeton|latin|afrobeats|hip\s*hop|r&b)\s+(?:rave|parr?ty|night|boat|dance)\b/i,
 
   // "(18+", "(21" — scraper truncated mid-string before closing paren. The
   // close-paren check prevents "Hugo (US)" etc. from matching.
@@ -222,6 +224,73 @@ export const EVENT_WORD_PATTERNS: readonly RegExp[] = [
 
   // Trailing ordinal date: "Apr 24th", "Opening Day - Sun. May 17th".
   /\b\d{1,2}(?:st|nd|rd|th)\s*$/,
+
+  // ── Phase 4f.10 expansions ───────────────────────────────────────────────
+  // Audited against full prod artists table (1896 rows, 2026-04-28). Every
+  // pattern below has zero false-positive overlap with rows that have a
+  // spotify_url or mb_tags signal — i.e. they only fire on rows that the
+  // enrichment pipeline could not match anywhere. Rescue gate in audit.ts
+  // (Tier-2) provides another layer if a future legit artist hits one.
+
+  // "X Party" / "Party X" / "After Party" — narrow bigrams. "Coach Party"
+  // (real UK band, 2 tokens, no preceding modifier) passes. "Party Dad",
+  // "Party Favor" pass. Catches: "DINASTIA Peso Pluma After Party NYC",
+  // "RNBLAND NYC ... Summer Rooftop Day Party", "I BELIEBE: JUSTIN BIEBER
+  // PARTY NIGHT", "D.A.N.C.E. [BLOG HAUS] EARLY PARTY".
+  /\b(?:after|day|pre|warehouse|loft|block|pool|street|garden|early|late|sunset|sunrise)\s+parr?ty\b/i,
+  /\bafter[-\s]?parr?ty\b/i,
+  /\bparr?ty\s+night\b/i,
+  /\bnight\s+parr?ty\b/i,
+
+  // "Party" mentioned twice in one string — extremely strong phantom signal.
+  // Validated zero false positives in current data. Catches "THE DEVIL WEARS
+  // PRADA PARTY: A Y2K PARTY", "This Party Is Killing You!: The Robyn Party",
+  // "THE RECESSION POP PARTY: PARTY LIKE IT'S 2008".
+  /\bparr?ty\b[\s\S]*?\bparr?ty\b/i,
+
+  // Singular weekday with leading event-descriptor (existing pattern is
+  // plural-only). Catches "Karaoke tuesday", "DJ niko soul Sunday night".
+  /\b(?:karaoke|salsa|bachata|trivia|reggaeton|afrobeats|latin|amapiano|perreo)\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i,
+
+  // Event-night formats. "Drag Show", "Drag Brunch", "Silent Disco",
+  // "Bingo Night", "Happy Hour" are unambiguous event types in NYC nightlife.
+  /\bdrag\s+(?:show|brunch|night)\b/i,
+  /\bsilent\s+(?:disco|parr?ty)\b/i,
+  /\bbingo\s+night\b/i,
+  /\bhappy\s+hour\b/i,
+
+  // Decade-throwback events. "Party like it's 2016", "PARTY LIKE IT'S 2008".
+  /\blike\s+it['']?s\s+(?:19|20)\d{2}\b/i,
+
+  // Promotional locality fragments unique to event titles, never artist
+  // names. "Skyline Views", "Open Bar", "Two Floors", "Immersive Experience".
+  /\bskyline\s+views?\b/i,
+  /\bopen\s+bar\b/i,
+  /\btwo\s+floors?\b/i,
+  /\bimmersive\s+experience\b/i,
+
+  // Genre + locality bigram (extends existing genre+event pattern).
+  // "Amapiano NYC Party", "Corridos Rooftop Midtown NYC".
+  /\b(?:amapiano|salsa|bachata|cumbia|merengue|corridos|perreo|soca|funk)\s+(?:nyc|brooklyn|manhattan|midtown|rooftop)\b/i,
+
+  // Compound event-format phrase. "Ritual: Day-Into-Night",
+  // "Shelter: Day-Into-Night".
+  /\bday[-\s]into[-\s]night\b/i,
+
+  // Workshop-class events not currently caught by `\bworkshop\b`.
+  /\bbattle\s+of\s+the\s+bands?\b/i,
+  /\bdueling\s+pianos?\b/i,
+  /\bcreative\s+practice\b/i,
+  /\bopen\s+studio\b/i,
+  /\b(?:concert|recording)\s+film\b/i,
+  /^how\s+to\s+/i,
+
+  // Spam events that scrape into RA via promoter spam listings.
+  // "**Southwest Airlines Phone Number 24 Hours 2026" etc. Leading-asterisk
+  // is the spam tell; airline/customer-service keyword combo seals it.
+  /^\s*\*+\s*/,
+  /\bairlines?\s+(?:phone|customer)\b/i,
+  /\bcustomer\s+service\s+(?:phone|number)\b/i,
 ];
 
 export function looksLikeEventTitle(piece: string): boolean {
@@ -247,6 +316,34 @@ export function cleanArtistPiece(piece: string): string {
     .replace(ORPHAN_CONJ_HEAD, '')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+/**
+ * Phase 4f.10 — recoverable suffixes that turn a real artist into an
+ * event-titled phantom. RA's structured `e.artists[].name` field often
+ * contains "Ellen Allien All Night Long" or "Carl Cox Marathon Set" —
+ * the artist IS real, the trailing phrase is the act format. Stripping
+ * the suffix and re-classifying recovers the artist linkage that the
+ * old "drop the whole row" behavior was throwing away.
+ *
+ * Each entry must be ANCHORED to end-of-string so we don't accidentally
+ * trim mid-name content from a legit "All Night DJs"-style band name.
+ */
+const ACT_NAME_SUFFIXES: readonly RegExp[] = [
+  /\s+all\s+(?:day|night|morning)\s+long\s*$/i,
+  /\s+(?:marathon|extended)\s+set\s*$/i,
+  /\s+open\s+to\s+close\s*$/i,
+  /\s+\d+\s*(?:hr|hour)\s+set\s*$/i,
+  /\s+\(\s*live(?:\s+set)?\s*\)\s*$/i,
+  /\s+takeover\s*$/i,
+];
+
+function recoverFromActName(name: string): string | null {
+  for (const re of ACT_NAME_SUFFIXES) {
+    const stripped = name.replace(re, '').trim();
+    if (stripped !== name && stripped.length >= 2) return stripped;
+  }
+  return null;
 }
 
 export type ClassifyReason =
@@ -296,6 +393,14 @@ export function classifyArtistName(
     return { valid: false, reason: 'noise', cleaned };
   }
   if (looksLikeEventTitle(cleaned)) {
+    // Phase 4f.10 — try suffix recovery before dropping. "Ellen Allien All
+    // Night Long" → "Ellen Allien"; reclassify the stripped form. If the
+    // stripped name is itself event-titled or noise, the recursion drops it.
+    const recovered = recoverFromActName(cleaned);
+    if (recovered) {
+      const reclassified = classifyArtistName(recovered);
+      if (reclassified.valid) return reclassified;
+    }
     return { valid: false, reason: 'event_title', cleaned };
   }
   // Bare venue phrases like "the basement" — we can't reliably tell apart from
@@ -334,11 +439,27 @@ export function parseArtists(title: string): string[] {
   }
 
   // 1b. "Series Name: artists…" — strip the prefix if it looks like a
-  // series / showcase name (capitalized, short, followed by a list).
+  // series / showcase name (capitalized, short, followed by a list OR by
+  // a single multi-token act). Phase 4f.10: extended to handle single-act
+  // tails like "Wednesday JAmZZ: Alican Bekoglu Quartet" or "Long Play:
+  // Dirty Projectors Trio". Gate on prefix-token count (≤ 4) AND tail-
+  // token count (≥ 2) so we don't strip things like "DJ: Mix" where the
+  // tail is a generic word.
   const seriesMatch = working.match(SERIES_PREFIX);
   if (seriesMatch) {
     const afterColon = working.slice(seriesMatch[0].length);
-    if (afterColon.includes(',') || COMMA_SPLIT.test(afterColon) || B2B_SPLIT.test(afterColon)) {
+    const hasListSep =
+      afterColon.includes(',') ||
+      COMMA_SPLIT.test(afterColon) ||
+      B2B_SPLIT.test(afterColon);
+    const prefixTokens = seriesMatch[1]?.trim().split(/\s+/).length ?? 0;
+    const tailTokens = afterColon.trim().split(/\s+/).length;
+    const looksLikeSingleArtistTail =
+      prefixTokens > 0 &&
+      prefixTokens <= 4 &&
+      tailTokens >= 2 &&
+      tailTokens <= 6;
+    if (hasListSep || looksLikeSingleArtistTail) {
       working = afterColon;
     }
   }

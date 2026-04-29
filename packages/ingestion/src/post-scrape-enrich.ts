@@ -43,6 +43,7 @@ import { supabase } from './supabase.js';
 import {
   type Artist,
   type EnrichOptions,
+  isLikelyEventTitle,
   loadEventContext,
   PAGE_SIZE,
   processArtist,
@@ -130,11 +131,31 @@ async function loadCohort(limit: number): Promise<{
     candidates.push(...((data ?? []) as unknown as Artist[]));
   }
 
-  const cohortRemaining = candidates.length;
+  // Triage filter: drop phantom-artist rows whose names look like event
+  // or party titles (scraper title-parser leakage). Keeps the nightly
+  // cron from burning Spotify/LLM/Firecrawl spend on rows that will
+  // never resolve to a real artist. See isLikelyEventTitle() in
+  // enrich-artist.ts for the patterns flagged.
+  const eligible: Artist[] = [];
+  let filteredCount = 0;
+  for (const a of candidates) {
+    if (isLikelyEventTitle(a.name).flagged) {
+      filteredCount += 1;
+    } else {
+      eligible.push(a);
+    }
+  }
+  if (filteredCount > 0) {
+    console.log(
+      `[curi-enrich] filtered ${filteredCount} likely event-title row(s) from cohort`,
+    );
+  }
+
+  const cohortRemaining = eligible.length;
   // Stable order — id ASC — so a partial nightly window picks up
   // deterministically tomorrow.
-  candidates.sort((a, b) => a.id.localeCompare(b.id));
-  const cohort = candidates.slice(0, limit);
+  eligible.sort((a, b) => a.id.localeCompare(b.id));
+  const cohort = eligible.slice(0, limit);
   return { cohort, cohortRemaining };
 }
 
