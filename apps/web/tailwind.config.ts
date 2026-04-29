@@ -50,6 +50,14 @@ const config: Config = {
           DEFAULT: 'hsl(var(--amber))',
           chip: 'var(--amber-chip-bg)',
         },
+        // Phase 5.6.7 — brand-match for the SC follow indicator. See
+        // --sc-orange in globals.css for the rationale. Using the
+        // `sc-orange` (kebab) name so it reads correctly in className
+        // strings: `bg-sc-orange`, `text-sc-orange`, `border-sc-orange/30`.
+        'sc-orange': {
+          DEFAULT: 'hsl(var(--sc-orange))',
+          chip: 'var(--sc-orange-chip-bg)',
+        },
 
         // Borders
         border: 'var(--border)',
@@ -105,14 +113,16 @@ const config: Config = {
         glow: '0 0 24px rgba(34, 211, 238, 0.35)',
         'glow-sm': '0 0 16px rgba(34, 211, 238, 0.25)',
         'glow-lg': '0 0 40px rgba(34, 211, 238, 0.45)',
-        // Phase 5.6.6 — amber-tinted glow used by the SoundCloud follow
-        // indicator (matches SC's brand orange-amber). Mirrors glow-sm's
-        // size + alpha but with the amber HSL `45 97% 55%` rendered as
-        // rgba so the box-shadow rule renders without runtime CSS-var
-        // resolution. Stays in sync with `--amber` in globals.css —
-        // change both together if the token shifts.
-        'glow-amber-sm': '0 0 16px rgba(251, 191, 36, 0.30)',
-        'glow-amber': '0 0 24px rgba(251, 191, 36, 0.40)',
+        // Phase 5.6.7 — SoundCloud-orange glow used by the SC follow
+        // indicator (avatar dot on EventCard, ConnectedSummary on
+        // /profile, LineupList dots on the event detail page).
+        // Mirrors glow-sm's size + alpha shape but with SC brand
+        // orange `#FF5500` rendered as rgba so the box-shadow rule
+        // renders without runtime CSS-var resolution. Stays in sync
+        // with --sc-orange in globals.css — change both together if
+        // the brand color shifts.
+        'glow-sc-sm': '0 0 16px rgba(255, 85, 0, 0.30)',
+        'glow-sc': '0 0 24px rgba(255, 85, 0, 0.40)',
         card: '0 12px 40px -16px rgba(0, 0, 0, 0.8)',
         'nav-top': '0 -1px 0 rgba(255, 255, 255, 0.06) inset',
       },

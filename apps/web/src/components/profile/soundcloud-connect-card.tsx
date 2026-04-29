@@ -334,21 +334,20 @@ function ConnectedSummary({
 
   return (
     <div className="flex items-center gap-3">
-      {/* Phase 5.6.6 — amber dot matches SoundCloud's brand orange,
-          giving "this is your SC connection" a distinct color
-          vocabulary from cyan (which is reserved for primary actions
-          + transient success states). Same color used on the
-          EventCard avatar follow-dot and the LineupList avatar
-          follow-dot, so the SC-follow signal reads consistently
-          across the app. */}
+      {/* Phase 5.6.7 — SoundCloud's brand orange (#FF5500) makes
+          "this is your SC connection" instantly recognizable. Same
+          color used on the EventCard avatar follow-dot and the
+          LineupList avatar follow-dot, so the SC-follow signal reads
+          consistently across the app. Distinct from cyan (primary
+          actions / transient success) and amber (warning/error). */}
       <span
         aria-hidden
-        className="h-2 w-2 shrink-0 rounded-full bg-amber shadow-glow-amber-sm"
+        className="h-2 w-2 shrink-0 rounded-full bg-sc-orange shadow-glow-sc-sm"
       />
       <div className="min-w-0 flex-1">
         <div className="truncate text-sm font-medium text-fg-primary">
           Connected as{' '}
-          <span className="text-amber">@{username}</span>
+          <span className="text-sc-orange">@{username}</span>
         </div>
         {ageLabel && (
           <div className="text-2xs text-fg-muted tabular">
