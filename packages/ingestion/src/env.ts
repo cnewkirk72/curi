@@ -102,4 +102,7 @@ export const env = {
   get firecrawlApiKey(): string {
     return optional('FIRECRAWL_API_KEY', '');
   },
+  get ticketmasterApiKey(): string {
+    return optional('TICKETMASTER_API_KEY', '');
+  },
 };
