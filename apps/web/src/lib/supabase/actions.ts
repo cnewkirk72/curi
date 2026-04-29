@@ -10,6 +10,55 @@ import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
 
 /**
+ * Derive the absolute origin (`https://host`) of the page that triggered
+ * the current server action. We need this to build an absolute redirectTo
+ * URL for Supabase OAuth — Supabase requires the redirectTo to match its
+ * Redirect URL allowlist, which is configured with absolute URLs. A bare
+ * relative path like `/auth/callback` won't match anything in the allowlist
+ * and Supabase silently falls back to the project's Site URL (sending the
+ * user to `/?code=...` instead of `/auth/callback?code=...` — see the
+ * curi.events sign-in regression that triggered this hardening).
+ *
+ * Strategy is fall-through:
+ *   1. `Origin` header (preferred) — the browser sets this on POSTs from
+ *      the page that triggered the server action. Reliably present on most
+ *      Vercel deploys, but observed empty on certain custom-domain aliases.
+ *   2. `x-forwarded-proto` + `x-forwarded-host` — Vercel's edge proxy sets
+ *      these on every inbound request regardless of how the domain is
+ *      aliased, so they're a safe second source.
+ *   3. `host` + assumed `https` — fallback for non-Vercel deploys (local
+ *      dev sometimes hits this; localhost gets http instead of https).
+ *
+ * Returns `null` when none of the three resolve a usable origin — caller
+ * can then surface a config error rather than building a relative URL
+ * that will silently fail allowlist matching.
+ */
+function deriveOrigin(): string | null {
+  const h = headers();
+
+  // 1. Origin header — preferred when present.
+  const origin = h.get('origin');
+  if (origin) return origin;
+
+  // 2. Vercel's x-forwarded-* — set by the edge proxy on every request.
+  const xfHost = h.get('x-forwarded-host');
+  const xfProto = h.get('x-forwarded-proto');
+  if (xfHost) {
+    return `${xfProto ?? 'https'}://${xfHost}`;
+  }
+
+  // 3. Bare Host header — last resort.
+  const host = h.get('host');
+  if (host) {
+    // localhost gets http; anything else, assume https.
+    const proto = host.startsWith('localhost') ? 'http' : 'https';
+    return `${proto}://${host}`;
+  }
+
+  return null;
+}
+
+/**
  * Kick off Google OAuth.
  *
  * Supabase handles the Google handshake on its own domain; we just need
@@ -19,12 +68,30 @@ import { createClient } from '@/lib/supabase/server';
  */
 export async function signInWithGoogle() {
   const supabase = createClient();
-  const origin = headers().get('origin') ?? '';
+  const origin = deriveOrigin();
+
+  if (!origin) {
+    // No usable origin → can't build an absolute redirectTo. Bail with an
+    // error rather than letting Supabase fall back to Site URL (which
+    // hides the bug). Surfaces as ?error=oauth_no_origin on /login.
+    // eslint-disable-next-line no-console
+    console.error('[signInWithGoogle] no origin derivable from request headers');
+    redirect('/login?error=oauth_no_origin');
+  }
+
+  const redirectTo = `${origin}/auth/callback`;
+
+  // Diagnostic log so the redirectTo computed at request time is visible
+  // in Vercel function logs — useful when debugging multi-domain OAuth
+  // mismatches against the Supabase Redirect URL allowlist. Cheap; runs
+  // at most once per sign-in click.
+  // eslint-disable-next-line no-console
+  console.log('[signInWithGoogle] redirectTo:', redirectTo);
 
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider: 'google',
     options: {
-      redirectTo: `${origin}/auth/callback`,
+      redirectTo,
     },
   });
 
