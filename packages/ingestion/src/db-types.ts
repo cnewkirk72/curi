@@ -11,557 +11,680 @@ export type Json =
   | boolean
   | null
   | { [key: string]: Json | undefined }
-  | Json[];
+  | Json[]
 
 export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
-    PostgrestVersion: '14.5';
-  };
+    PostgrestVersion: "14.5"
+  }
   public: {
     Tables: {
       artists: {
         Row: {
-          bandcamp_followers: number | null;
-          bandcamp_image_url: string | null;
-          bandcamp_url: string | null;
-          enrichment_confidence: string | null;
-          genres: string[];
-          id: string;
-          last_enriched_at: string | null;
-          mb_tags: Json | null;
-          musicbrainz_id: string | null;
-          name: string;
-          popularity_checked_at: string | null;
-          popularity_discovery_failed_at: string | null;
-          slug: string;
-          soundcloud_followers: number | null;
-          soundcloud_image_url: string | null;
-          soundcloud_url: string | null;
-          spotify_checked_at: string | null;
-          spotify_discovery_failed_at: string | null;
-          spotify_followers: number | null;
-          spotify_id: string | null;
-          spotify_image_url: string | null;
-          spotify_popularity: number | null;
-          spotify_url: string | null;
-          subgenres: string[];
-          vibes: string[];
-        };
+          bandcamp_followers: number | null
+          bandcamp_image_url: string | null
+          bandcamp_url: string | null
+          enrichment_confidence: string | null
+          genres: string[]
+          id: string
+          last_enriched_at: string | null
+          mb_tags: Json | null
+          musicbrainz_id: string | null
+          name: string
+          popularity_checked_at: string | null
+          popularity_discovery_failed_at: string | null
+          slug: string
+          soundcloud_followers: number | null
+          soundcloud_image_url: string | null
+          soundcloud_url: string | null
+          spotify_checked_at: string | null
+          spotify_discovery_failed_at: string | null
+          spotify_followers: number | null
+          spotify_id: string | null
+          spotify_image_url: string | null
+          spotify_popularity: number | null
+          spotify_url: string | null
+          subgenres: string[]
+          vibes: string[]
+        }
         Insert: {
-          bandcamp_followers?: number | null;
-          bandcamp_image_url?: string | null;
-          bandcamp_url?: string | null;
-          enrichment_confidence?: string | null;
-          genres?: string[];
-          id?: string;
-          last_enriched_at?: string | null;
-          mb_tags?: Json | null;
-          musicbrainz_id?: string | null;
-          name: string;
-          popularity_checked_at?: string | null;
-          popularity_discovery_failed_at?: string | null;
-          slug: string;
-          soundcloud_followers?: number | null;
-          soundcloud_image_url?: string | null;
-          soundcloud_url?: string | null;
-          spotify_checked_at?: string | null;
-          spotify_discovery_failed_at?: string | null;
-          spotify_followers?: number | null;
-          spotify_id?: string | null;
-          spotify_image_url?: string | null;
-          spotify_popularity?: number | null;
-          spotify_url?: string | null;
-          subgenres?: string[];
-          vibes?: string[];
-        };
+          bandcamp_followers?: number | null
+          bandcamp_image_url?: string | null
+          bandcamp_url?: string | null
+          enrichment_confidence?: string | null
+          genres?: string[]
+          id?: string
+          last_enriched_at?: string | null
+          mb_tags?: Json | null
+          musicbrainz_id?: string | null
+          name: string
+          popularity_checked_at?: string | null
+          popularity_discovery_failed_at?: string | null
+          slug: string
+          soundcloud_followers?: number | null
+          soundcloud_image_url?: string | null
+          soundcloud_url?: string | null
+          spotify_checked_at?: string | null
+          spotify_discovery_failed_at?: string | null
+          spotify_followers?: number | null
+          spotify_id?: string | null
+          spotify_image_url?: string | null
+          spotify_popularity?: number | null
+          spotify_url?: string | null
+          subgenres?: string[]
+          vibes?: string[]
+        }
         Update: {
-          bandcamp_followers?: number | null;
-          bandcamp_image_url?: string | null;
-          bandcamp_url?: string | null;
-          enrichment_confidence?: string | null;
-          genres?: string[];
-          id?: string;
-          last_enriched_at?: string | null;
-          mb_tags?: Json | null;
-          musicbrainz_id?: string | null;
-          name?: string;
-          popularity_checked_at?: string | null;
-          popularity_discovery_failed_at?: string | null;
-          slug?: string;
-          soundcloud_followers?: number | null;
-          soundcloud_image_url?: string | null;
-          soundcloud_url?: string | null;
-          spotify_checked_at?: string | null;
-          spotify_discovery_failed_at?: string | null;
-          spotify_followers?: number | null;
-          spotify_id?: string | null;
-          spotify_image_url?: string | null;
-          spotify_popularity?: number | null;
-          spotify_url?: string | null;
-          subgenres?: string[];
-          vibes?: string[];
-        };
-        Relationships: [];
-      };
+          bandcamp_followers?: number | null
+          bandcamp_image_url?: string | null
+          bandcamp_url?: string | null
+          enrichment_confidence?: string | null
+          genres?: string[]
+          id?: string
+          last_enriched_at?: string | null
+          mb_tags?: Json | null
+          musicbrainz_id?: string | null
+          name?: string
+          popularity_checked_at?: string | null
+          popularity_discovery_failed_at?: string | null
+          slug?: string
+          soundcloud_followers?: number | null
+          soundcloud_image_url?: string | null
+          soundcloud_url?: string | null
+          spotify_checked_at?: string | null
+          spotify_discovery_failed_at?: string | null
+          spotify_followers?: number | null
+          spotify_id?: string | null
+          spotify_image_url?: string | null
+          spotify_popularity?: number | null
+          spotify_url?: string | null
+          subgenres?: string[]
+          vibes?: string[]
+        }
+        Relationships: []
+      }
       artists_audit_backup: {
         Row: {
-          action: string;
-          applied_at: string;
-          category: string;
-          id: number;
-          notes: string | null;
-          original_id: string;
-          original_row: Json;
-        };
+          action: string
+          applied_at: string
+          category: string
+          id: number
+          notes: string | null
+          original_id: string
+          original_row: Json
+        }
         Insert: {
-          action: string;
-          applied_at?: string;
-          category: string;
-          id?: number;
-          notes?: string | null;
-          original_id: string;
-          original_row: Json;
-        };
+          action: string
+          applied_at?: string
+          category: string
+          id?: number
+          notes?: string | null
+          original_id: string
+          original_row: Json
+        }
         Update: {
-          action?: string;
-          applied_at?: string;
-          category?: string;
-          id?: number;
-          notes?: string | null;
-          original_id?: string;
-          original_row?: Json;
-        };
-        Relationships: [];
-      };
+          action?: string
+          applied_at?: string
+          category?: string
+          id?: number
+          notes?: string | null
+          original_id?: string
+          original_row?: Json
+        }
+        Relationships: []
+      }
+      artists_sc_audit_2026_04_25: {
+        Row: {
+          audited_at: string | null
+          enrichment_confidence: string | null
+          id: string | null
+          last_enriched_at: string | null
+          name: string | null
+          popularity_checked_at: string | null
+          slug: string | null
+          soundcloud_followers: number | null
+          soundcloud_url: string | null
+        }
+        Insert: {
+          audited_at?: string | null
+          enrichment_confidence?: string | null
+          id?: string | null
+          last_enriched_at?: string | null
+          name?: string | null
+          popularity_checked_at?: string | null
+          slug?: string | null
+          soundcloud_followers?: number | null
+          soundcloud_url?: string | null
+        }
+        Update: {
+          audited_at?: string | null
+          enrichment_confidence?: string | null
+          id?: string | null
+          last_enriched_at?: string | null
+          name?: string | null
+          popularity_checked_at?: string | null
+          slug?: string | null
+          soundcloud_followers?: number | null
+          soundcloud_url?: string | null
+        }
+        Relationships: []
+      }
       event_artists: {
         Row: {
-          artist_id: string;
-          event_id: string;
-          is_headliner: boolean;
-          position: number;
-        };
+          artist_id: string
+          event_id: string
+          is_headliner: boolean
+          position: number
+        }
         Insert: {
-          artist_id: string;
-          event_id: string;
-          is_headliner?: boolean;
-          position?: number;
-        };
+          artist_id: string
+          event_id: string
+          is_headliner?: boolean
+          position?: number
+        }
         Update: {
-          artist_id?: string;
-          event_id?: string;
-          is_headliner?: boolean;
-          position?: number;
-        };
+          artist_id?: string
+          event_id?: string
+          is_headliner?: boolean
+          position?: number
+        }
         Relationships: [
           {
-            foreignKeyName: 'event_artists_artist_id_fkey';
-            columns: ['artist_id'];
-            isOneToOne: false;
-            referencedRelation: 'artists';
-            referencedColumns: ['id'];
+            foreignKeyName: "event_artists_artist_id_fkey"
+            columns: ["artist_id"]
+            isOneToOne: false
+            referencedRelation: "artists"
+            referencedColumns: ["id"]
           },
           {
-            foreignKeyName: 'event_artists_event_id_fkey';
-            columns: ['event_id'];
-            isOneToOne: false;
-            referencedRelation: 'events';
-            referencedColumns: ['id'];
+            foreignKeyName: "event_artists_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
           },
-        ];
-      };
+        ]
+      }
       events: {
         Row: {
-          city: string;
-          created_at: string;
-          description: string | null;
-          ends_at: string | null;
-          genres: string[];
-          id: string;
-          image_url: string | null;
-          price_max: number | null;
-          price_min: number | null;
-          raw: Json | null;
-          source: string;
-          source_id: string;
-          starts_at: string;
-          ticket_url: string | null;
-          title: string;
-          updated_at: string;
-          venue_id: string | null;
-          vibes: string[];
-        };
+          city: string
+          created_at: string
+          description: string | null
+          ends_at: string | null
+          genres: string[]
+          id: string
+          image_url: string | null
+          price_max: number | null
+          price_min: number | null
+          raw: Json | null
+          setting: string[] | null
+          source: string
+          source_id: string
+          starts_at: string
+          ticket_url: string | null
+          title: string
+          updated_at: string
+          venue_id: string | null
+          vibes: string[]
+        }
         Insert: {
-          city?: string;
-          created_at?: string;
-          description?: string | null;
-          ends_at?: string | null;
-          genres?: string[];
-          id?: string;
-          image_url?: string | null;
-          price_max?: number | null;
-          price_min?: number | null;
-          raw?: Json | null;
-          source: string;
-          source_id: string;
-          starts_at: string;
-          ticket_url?: string | null;
-          title: string;
-          updated_at?: string;
-          venue_id?: string | null;
-          vibes?: string[];
-        };
+          city?: string
+          created_at?: string
+          description?: string | null
+          ends_at?: string | null
+          genres?: string[]
+          id?: string
+          image_url?: string | null
+          price_max?: number | null
+          price_min?: number | null
+          raw?: Json | null
+          setting?: string[] | null
+          source: string
+          source_id: string
+          starts_at: string
+          ticket_url?: string | null
+          title: string
+          updated_at?: string
+          venue_id?: string | null
+          vibes?: string[]
+        }
         Update: {
-          city?: string;
-          created_at?: string;
-          description?: string | null;
-          ends_at?: string | null;
-          genres?: string[];
-          id?: string;
-          image_url?: string | null;
-          price_max?: number | null;
-          price_min?: number | null;
-          raw?: Json | null;
-          source?: string;
-          source_id?: string;
-          starts_at?: string;
-          ticket_url?: string | null;
-          title?: string;
-          updated_at?: string;
-          venue_id?: string | null;
-          vibes?: string[];
-        };
+          city?: string
+          created_at?: string
+          description?: string | null
+          ends_at?: string | null
+          genres?: string[]
+          id?: string
+          image_url?: string | null
+          price_max?: number | null
+          price_min?: number | null
+          raw?: Json | null
+          setting?: string[] | null
+          source?: string
+          source_id?: string
+          starts_at?: string
+          ticket_url?: string | null
+          title?: string
+          updated_at?: string
+          venue_id?: string | null
+          vibes?: string[]
+        }
         Relationships: [
           {
-            foreignKeyName: 'events_venue_id_fkey';
-            columns: ['venue_id'];
-            isOneToOne: false;
-            referencedRelation: 'venues';
-            referencedColumns: ['id'];
+            foreignKeyName: "events_venue_id_fkey"
+            columns: ["venue_id"]
+            isOneToOne: false
+            referencedRelation: "venues"
+            referencedColumns: ["id"]
           },
-        ];
-      };
+        ]
+      }
       events_audit_backup: {
         Row: {
-          action: string;
-          applied_at: string;
-          category: string;
-          id: number;
-          notes: string | null;
-          original_id: string;
-          original_row: Json;
-        };
+          action: string
+          applied_at: string
+          category: string
+          id: number
+          notes: string | null
+          original_id: string
+          original_row: Json
+        }
         Insert: {
-          action: string;
-          applied_at?: string;
-          category: string;
-          id?: number;
-          notes?: string | null;
-          original_id: string;
-          original_row: Json;
-        };
+          action: string
+          applied_at?: string
+          category: string
+          id?: number
+          notes?: string | null
+          original_id: string
+          original_row: Json
+        }
         Update: {
-          action?: string;
-          applied_at?: string;
-          category?: string;
-          id?: number;
-          notes?: string | null;
-          original_id?: string;
-          original_row?: Json;
-        };
-        Relationships: [];
-      };
+          action?: string
+          applied_at?: string
+          category?: string
+          id?: number
+          notes?: string | null
+          original_id?: string
+          original_row?: Json
+        }
+        Relationships: []
+      }
+      profiles: {
+        Row: {
+          avatar_url: string | null
+          created_at: string
+          display_name: string | null
+          id: string
+          updated_at: string
+          username: string | null
+        }
+        Insert: {
+          avatar_url?: string | null
+          created_at?: string
+          display_name?: string | null
+          id: string
+          updated_at?: string
+          username?: string | null
+        }
+        Update: {
+          avatar_url?: string | null
+          created_at?: string
+          display_name?: string | null
+          id?: string
+          updated_at?: string
+          username?: string | null
+        }
+        Relationships: []
+      }
       taxonomy_map: {
         Row: {
-          genres: string[];
-          id: string;
-          input_tag: string;
-          vibes: string[];
-        };
+          genres: string[]
+          id: string
+          input_tag: string
+          vibes: string[]
+        }
         Insert: {
-          genres?: string[];
-          id?: string;
-          input_tag: string;
-          vibes?: string[];
-        };
+          genres?: string[]
+          id?: string
+          input_tag: string
+          vibes?: string[]
+        }
         Update: {
-          genres?: string[];
-          id?: string;
-          input_tag?: string;
-          vibes?: string[];
-        };
-        Relationships: [];
-      };
+          genres?: string[]
+          id?: string
+          input_tag?: string
+          vibes?: string[]
+        }
+        Relationships: []
+      }
       taxonomy_subgenres: {
         Row: {
-          auto_created_at: string;
-          confidence: number;
-          genres: string[];
-          id: string;
-          input_tag: string;
-          parent_tag_id: string;
-          vibes: string[];
-        };
+          auto_created_at: string
+          confidence: number
+          genres: string[]
+          id: string
+          input_tag: string
+          parent_tag_id: string
+          vibes: string[]
+        }
         Insert: {
-          auto_created_at?: string;
-          confidence: number;
-          genres?: string[];
-          id?: string;
-          input_tag: string;
-          parent_tag_id: string;
-          vibes?: string[];
-        };
+          auto_created_at?: string
+          confidence: number
+          genres?: string[]
+          id?: string
+          input_tag: string
+          parent_tag_id: string
+          vibes?: string[]
+        }
         Update: {
-          auto_created_at?: string;
-          confidence?: number;
-          genres?: string[];
-          id?: string;
-          input_tag?: string;
-          parent_tag_id?: string;
-          vibes?: string[];
-        };
+          auto_created_at?: string
+          confidence?: number
+          genres?: string[]
+          id?: string
+          input_tag?: string
+          parent_tag_id?: string
+          vibes?: string[]
+        }
         Relationships: [
           {
-            foreignKeyName: 'taxonomy_subgenres_parent_tag_id_fkey';
-            columns: ['parent_tag_id'];
-            isOneToOne: false;
-            referencedRelation: 'taxonomy_map';
-            referencedColumns: ['id'];
+            foreignKeyName: "taxonomy_subgenres_parent_tag_id_fkey"
+            columns: ["parent_tag_id"]
+            isOneToOne: false
+            referencedRelation: "taxonomy_map"
+            referencedColumns: ["id"]
           },
-        ];
-      };
+        ]
+      }
       user_prefs: {
         Row: {
-          created_at: string;
-          digest_email: boolean;
-          preferred_genres: string[];
-          preferred_vibes: string[];
-          updated_at: string;
-          user_id: string;
-        };
+          calendar_opt_in: boolean
+          created_at: string
+          default_when: string | null
+          digest_email: boolean
+          location_opt_in: boolean
+          notify_artist_drops: boolean
+          onboarding_completed_at: string | null
+          preferred_genres: string[]
+          preferred_setting: string[]
+          preferred_subgenres: string[]
+          preferred_vibes: string[]
+          updated_at: string
+          user_id: string
+        }
         Insert: {
-          created_at?: string;
-          digest_email?: boolean;
-          preferred_genres?: string[];
-          preferred_vibes?: string[];
-          updated_at?: string;
-          user_id: string;
-        };
+          calendar_opt_in?: boolean
+          created_at?: string
+          default_when?: string | null
+          digest_email?: boolean
+          location_opt_in?: boolean
+          notify_artist_drops?: boolean
+          onboarding_completed_at?: string | null
+          preferred_genres?: string[]
+          preferred_setting?: string[]
+          preferred_subgenres?: string[]
+          preferred_vibes?: string[]
+          updated_at?: string
+          user_id: string
+        }
         Update: {
-          created_at?: string;
-          digest_email?: boolean;
-          preferred_genres?: string[];
-          preferred_vibes?: string[];
-          updated_at?: string;
-          user_id?: string;
-        };
-        Relationships: [];
-      };
+          calendar_opt_in?: boolean
+          created_at?: string
+          default_when?: string | null
+          digest_email?: boolean
+          location_opt_in?: boolean
+          notify_artist_drops?: boolean
+          onboarding_completed_at?: string | null
+          preferred_genres?: string[]
+          preferred_setting?: string[]
+          preferred_subgenres?: string[]
+          preferred_vibes?: string[]
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       user_saves: {
         Row: {
-          created_at: string;
-          event_id: string;
-          user_id: string;
-        };
+          created_at: string
+          event_id: string
+          user_id: string
+        }
         Insert: {
-          created_at?: string;
-          event_id: string;
-          user_id: string;
-        };
+          created_at?: string
+          event_id: string
+          user_id: string
+        }
         Update: {
-          created_at?: string;
-          event_id?: string;
-          user_id?: string;
-        };
+          created_at?: string
+          event_id?: string
+          user_id?: string
+        }
         Relationships: [
           {
-            foreignKeyName: 'user_saves_event_id_fkey';
-            columns: ['event_id'];
-            isOneToOne: false;
-            referencedRelation: 'events';
-            referencedColumns: ['id'];
+            foreignKeyName: "user_saves_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
           },
-        ];
-      };
+        ]
+      }
       venues: {
         Row: {
-          created_at: string;
-          default_genres: string[] | null;
-          default_vibes: string[] | null;
-          id: string;
-          lat: number | null;
-          lng: number | null;
-          name: string;
-          neighborhood: string | null;
-          slug: string;
-          website: string | null;
-        };
+          created_at: string
+          default_genres: string[] | null
+          default_vibes: string[] | null
+          id: string
+          image_url: string | null
+          lat: number | null
+          lng: number | null
+          name: string
+          neighborhood: string | null
+          slug: string
+          website: string | null
+        }
         Insert: {
-          created_at?: string;
-          default_genres?: string[] | null;
-          default_vibes?: string[] | null;
-          id?: string;
-          lat?: number | null;
-          lng?: number | null;
-          name: string;
-          neighborhood?: string | null;
-          slug: string;
-          website?: string | null;
-        };
+          created_at?: string
+          default_genres?: string[] | null
+          default_vibes?: string[] | null
+          id?: string
+          image_url?: string | null
+          lat?: number | null
+          lng?: number | null
+          name: string
+          neighborhood?: string | null
+          slug: string
+          website?: string | null
+        }
         Update: {
-          created_at?: string;
-          default_genres?: string[] | null;
-          default_vibes?: string[] | null;
-          id?: string;
-          lat?: number | null;
-          lng?: number | null;
-          name?: string;
-          neighborhood?: string | null;
-          slug?: string;
-          website?: string | null;
-        };
-        Relationships: [];
-      };
-    };
+          created_at?: string
+          default_genres?: string[] | null
+          default_vibes?: string[] | null
+          id?: string
+          image_url?: string | null
+          lat?: number | null
+          lng?: number | null
+          name?: string
+          neighborhood?: string | null
+          slug?: string
+          website?: string | null
+        }
+        Relationships: []
+      }
+    }
     Views: {
-      [_ in never]: never;
-    };
+      [_ in never]: never
+    }
     Functions: {
-      curi_slugify: {
+      curi_slugify: { Args: { input: string }; Returns: string }
+      find_dupe_event_by_artist: {
         Args: {
-          input: string;
-        };
-        Returns: string;
-      };
-    };
+          p_artist_slugs: string[]
+          p_exclude_source: string
+          p_exclude_source_id: string
+          p_starts_at: string
+          p_venue_id: string
+        }
+        Returns: {
+          description: string
+          ends_at: string
+          id: string
+          image_url: string
+          price_max: number
+          price_min: number
+          source: string
+          source_id: string
+          starts_at: string
+          ticket_url: string
+          title: string
+        }[]
+      }
+      search_suggestions: {
+        Args: { q: string }
+        Returns: {
+          id: string
+          image_url: string
+          kind: string
+          score: number
+          slug: string
+          starts_at: string
+          subtitle: string
+          title: string
+        }[]
+      }
+      show_limit: { Args: never; Returns: number }
+      show_trgm: { Args: { "": string }; Returns: string[] }
+    }
     Enums: {
-      [_ in never]: never;
-    };
+      [_ in never]: never
+    }
     CompositeTypes: {
-      [_ in never]: never;
-    };
-  };
-};
+      [_ in never]: never
+    }
+  }
+}
 
-type DatabaseWithoutInternals = Omit<Database, '__InternalSupabase'>;
+type DatabaseWithoutInternals = Omit<Database, "__InternalSupabase">
 
-type DefaultSchema = DatabaseWithoutInternals[Extract<keyof Database, 'public'>];
+type DefaultSchema = DatabaseWithoutInternals[Extract<keyof Database, "public">]
 
 export type Tables<
   DefaultSchemaTableNameOrOptions extends
-    | keyof (DefaultSchema['Tables'] & DefaultSchema['Views'])
+    | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
     | { schema: keyof DatabaseWithoutInternals },
   TableName extends DefaultSchemaTableNameOrOptions extends {
-    schema: keyof DatabaseWithoutInternals;
+    schema: keyof DatabaseWithoutInternals
   }
-    ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions['schema']]['Tables'] &
-        DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions['schema']]['Views'])
+    ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
+        DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
     : never = never,
 > = DefaultSchemaTableNameOrOptions extends {
-  schema: keyof DatabaseWithoutInternals;
+  schema: keyof DatabaseWithoutInternals
 }
-  ? (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions['schema']]['Tables'] &
-      DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions['schema']]['Views'])[TableName] extends {
-      Row: infer R;
+  ? (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
+      DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])[TableName] extends {
+      Row: infer R
     }
     ? R
     : never
-  : DefaultSchemaTableNameOrOptions extends keyof (DefaultSchema['Tables'] & DefaultSchema['Views'])
-    ? (DefaultSchema['Tables'] &
-        DefaultSchema['Views'])[DefaultSchemaTableNameOrOptions] extends {
-        Row: infer R;
+  : DefaultSchemaTableNameOrOptions extends keyof (DefaultSchema["Tables"] &
+        DefaultSchema["Views"])
+    ? (DefaultSchema["Tables"] &
+        DefaultSchema["Views"])[DefaultSchemaTableNameOrOptions] extends {
+        Row: infer R
       }
       ? R
       : never
-    : never;
+    : never
 
 export type TablesInsert<
   DefaultSchemaTableNameOrOptions extends
-    | keyof DefaultSchema['Tables']
+    | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
   TableName extends DefaultSchemaTableNameOrOptions extends {
-    schema: keyof DatabaseWithoutInternals;
+    schema: keyof DatabaseWithoutInternals
   }
-    ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions['schema']]['Tables']
+    ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
     : never = never,
 > = DefaultSchemaTableNameOrOptions extends {
-  schema: keyof DatabaseWithoutInternals;
+  schema: keyof DatabaseWithoutInternals
 }
-  ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions['schema']]['Tables'][TableName] extends {
-      Insert: infer I;
+  ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
+      Insert: infer I
     }
     ? I
     : never
-  : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema['Tables']
-    ? DefaultSchema['Tables'][DefaultSchemaTableNameOrOptions] extends {
-        Insert: infer I;
+  : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
+    ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
+        Insert: infer I
       }
       ? I
       : never
-    : never;
+    : never
 
 export type TablesUpdate<
   DefaultSchemaTableNameOrOptions extends
-    | keyof DefaultSchema['Tables']
+    | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
   TableName extends DefaultSchemaTableNameOrOptions extends {
-    schema: keyof DatabaseWithoutInternals;
+    schema: keyof DatabaseWithoutInternals
   }
-    ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions['schema']]['Tables']
+    ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
     : never = never,
 > = DefaultSchemaTableNameOrOptions extends {
-  schema: keyof DatabaseWithoutInternals;
+  schema: keyof DatabaseWithoutInternals
 }
-  ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions['schema']]['Tables'][TableName] extends {
-      Update: infer U;
+  ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
+      Update: infer U
     }
     ? U
     : never
-  : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema['Tables']
-    ? DefaultSchema['Tables'][DefaultSchemaTableNameOrOptions] extends {
-        Update: infer U;
+  : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
+    ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
+        Update: infer U
       }
       ? U
       : never
-    : never;
+    : never
 
 export type Enums<
   DefaultSchemaEnumNameOrOptions extends
-    | keyof DefaultSchema['Enums']
+    | keyof DefaultSchema["Enums"]
     | { schema: keyof DatabaseWithoutInternals },
   EnumName extends DefaultSchemaEnumNameOrOptions extends {
-    schema: keyof DatabaseWithoutInternals;
+    schema: keyof DatabaseWithoutInternals
   }
-    ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions['schema']]['Enums']
+    ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
     : never = never,
 > = DefaultSchemaEnumNameOrOptions extends {
-  schema: keyof DatabaseWithoutInternals;
+  schema: keyof DatabaseWithoutInternals
 }
-  ? DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions['schema']]['Enums'][EnumName]
-  : DefaultSchemaEnumNameOrOptions extends keyof DefaultSchema['Enums']
-    ? DefaultSchema['Enums'][DefaultSchemaEnumNameOrOptions]
-    : never;
+  ? DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"][EnumName]
+  : DefaultSchemaEnumNameOrOptions extends keyof DefaultSchema["Enums"]
+    ? DefaultSchema["Enums"][DefaultSchemaEnumNameOrOptions]
+    : never
 
 export type CompositeTypes<
   PublicCompositeTypeNameOrOptions extends
-    | keyof DefaultSchema['CompositeTypes']
+    | keyof DefaultSchema["CompositeTypes"]
     | { schema: keyof DatabaseWithoutInternals },
   CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
-    schema: keyof DatabaseWithoutInternals;
+    schema: keyof DatabaseWithoutInternals
   }
-    ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions['schema']]['CompositeTypes']
+    ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
     : never = never,
 > = PublicCompositeTypeNameOrOptions extends {
-  schema: keyof DatabaseWithoutInternals;
+  schema: keyof DatabaseWithoutInternals
 }
-  ? DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions['schema']]['CompositeTypes'][CompositeTypeName]
-  : PublicCompositeTypeNameOrOptions extends keyof DefaultSchema['CompositeTypes']
-    ? DefaultSchema['CompositeTypes'][PublicCompositeTypeNameOrOptions]
-    : never;
+  ? DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"][CompositeTypeName]
+  : PublicCompositeTypeNameOrOptions extends keyof DefaultSchema["CompositeTypes"]
+    ? DefaultSchema["CompositeTypes"][PublicCompositeTypeNameOrOptions]
+    : never
 
 export const Constants = {
   public: {
     Enums: {},
   },
-} as const;
+} as const

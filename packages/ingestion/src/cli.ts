@@ -39,16 +39,19 @@ import { publicRecordsScraper } from './scrapers/venues/public-records.js';
 import { elsewhereScraper } from './scrapers/venues/elsewhere.js';
 import { nowadaysScraper } from './scrapers/venues/nowadays.js';
 import { raNycScraper } from './scrapers/aggregators/ra-nyc.js';
+import { ticketmasterNycScraper } from './scrapers/aggregators/ticketmaster-nyc.js';
 
 // Registry of every scraper Curi knows about.
 //   Phase 2a: public-records
 //   Phase 2b: elsewhere, nowadays, ra-nyc (aggregator, replaces planned
 //             Shotgun source which is unreachable behind Vercel's bot gate)
+//   Phase 2c: ticketmaster-nyc (major-label electronic shows, complements ra-nyc)
 const REGISTRY: Record<string, Scraper> = {
   [publicRecordsScraper.source]: publicRecordsScraper,
   [elsewhereScraper.source]: elsewhereScraper,
   [nowadaysScraper.source]: nowadaysScraper,
   [raNycScraper.source]: raNycScraper,
+  [ticketmasterNycScraper.source]: ticketmasterNycScraper,
 };
 
 interface CliFlags {
