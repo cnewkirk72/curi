@@ -73,10 +73,10 @@ export function EventCard({
   saved?: boolean;
   /** Phase 5.6 — lowercased SoundCloud usernames the signed-in user
    *  follows. When provided, any lineup artist whose
-   *  `soundcloud_username` is in the set gets a small cyan presence
-   *  dot at the bottom-right corner of their avatar so the user can
-   *  see *why* the event ranked where it did (the boost is applied
-   *  upstream in `enrichmentScore`). Undefined or empty set renders
+   *  `soundcloud_username` is in the set gets a small SC-orange
+   *  presence dot at the bottom-right corner of their avatar so the
+   *  user can see *why* the event ranked where it did (the boost is
+   *  applied upstream in `feedScore`). Undefined or empty set renders
    *  the card without dots — same visual as anon viewers. */
   followedSoundcloudUsernames?: Set<string>;
   /** Whether the viewer is signed in. Threaded in so the
@@ -211,8 +211,8 @@ export function EventCard({
               {lineup.map((a) => {
                 const tone = avatarToneFor(a.name);
                 // Phase 5.6 — surface "you follow this artist" via a
-                // small cyan presence dot at the avatar's bottom-right
-                // corner instead of a caption row. Decoded instantly
+                // small presence dot at the avatar's bottom-right corner
+                // instead of a caption row. Decoded instantly
                 // (Discord/Slack-style indicator); doesn't fight the
                 // existing avatar+name truncation; passes a11y rule
                 // `color-not-only` because it's a discrete shape with
@@ -258,27 +258,29 @@ export function EventCard({
                         aria-label={`You follow ${a.name}`}
                         className={cn(
                           'pointer-events-none absolute -bottom-0.5 -right-0.5',
-                          // Phase 5.6.6 — amber matches SoundCloud's
-                          // brand orange-amber, giving the SC-follow
-                          // signal its own color vocabulary (distinct
-                          // from cyan, which stays reserved for primary
-                          // actions and transient success states).
+                          // Phase 5.6.7 — SoundCloud's brand orange
+                          // (#FF5500) gives the SC-follow signal its
+                          // own intuitive color vocabulary — users
+                          // recognize the orange as "SC" without any
+                          // additional cognitive load. Distinct from
+                          // cyan (primary actions / transient success)
+                          // and from amber (warning/error palette).
                           // Same dot styling appears on the
                           // ConnectedSummary indicator and the
                           // LineupList avatars on the detail page.
-                          'h-2 w-2 rounded-full bg-amber',
+                          'h-2 w-2 rounded-full bg-sc-orange',
                           // Inset ring matches the card background so
                           // the dot reads as separated from the
                           // avatar even on busy photo backgrounds.
                           'ring-2 ring-bg-base',
-                          // Amber-tinted halo, smaller variant. Same
-                          // 16px / 0.30α the SaveButton + BottomNav
-                          // use for cyan active states, recolored to
-                          // match the dot. The full `shadow-glow-amber`
-                          // (24px / 0.40α) would halo larger than the
-                          // avatar itself; -sm keeps the indicator
-                          // presence-dot subtle.
-                          'shadow-glow-amber-sm',
+                          // SC-orange-tinted halo, smaller variant.
+                          // Same 16px / 0.30α the SaveButton +
+                          // BottomNav use for cyan active states,
+                          // recolored to match the dot. The full
+                          // `shadow-glow-sc` (24px / 0.40α) would halo
+                          // larger than the avatar itself; -sm keeps
+                          // the indicator presence-dot subtle.
+                          'shadow-glow-sc-sm',
                         )}
                       />
                     )}

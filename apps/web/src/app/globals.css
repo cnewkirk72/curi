@@ -2,7 +2,7 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ────────────────────────────────────────────────────────────────────
+/* ───────────────────────────────────────────────────────────────────────
  * Curi — Midnight + Cyan Glow design tokens.
  *
  * Canonical reference: design-system/MASTER.md at the repo root.
@@ -10,7 +10,7 @@
  * `hsl(var(--x))` + opacity modifier pattern keeps working
  * (e.g. `bg-accent/20`). rgba values live as full variables for the
  * glass surfaces and glow shadows where the alpha is intentional.
- * ──────────────────────────────────────────────────────────────────── */
+ * ─────────────────────────────────────────────────────────────────────── */
 @layer base {
   :root {
     /* Canvas */
@@ -38,6 +38,15 @@
     --pale-chip-bg: rgba(125, 211, 252, 0.12);
     --amber: 45 97% 55%;          /* #FBBF24 */
     --amber-chip-bg: rgba(251, 191, 36, 0.12);
+
+    /* Brand-match — SoundCloud orange. Phase 5.6.7 dedicated token for
+     * the SC follow indicator (avatar dot, ConnectedSummary dot +
+     * @username, LineupList dots). Distinct from --amber so the SC
+     * vocabulary doesn't collide with the warning/error amber palette
+     * that the connect-card error toast already uses. Hex #FF5500 is
+     * SoundCloud's published brand orange. */
+    --sc-orange: 16 100% 50%;     /* #FF5500 */
+    --sc-orange-chip-bg: rgba(255, 85, 0, 0.12);
 
     /* Borders */
     --border: rgba(255, 255, 255, 0.08);

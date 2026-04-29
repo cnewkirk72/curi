@@ -10,11 +10,11 @@
 // player preferred, SoundCloud fallback). Only one preview is open at
 // a time — tapping a second artist collapses the first.
 //
-// Phase 5.6.6 — accepts an optional `followedSoundcloudUsernames` Set.
+// Phase 5.6.7 — accepts an optional `followedSoundcloudUsernames` Set.
 // Any artist whose `soundcloud_username` is in the set gets a small
-// amber presence dot at the bottom-right of their avatar — same
-// indicator vocabulary as the EventCard avatar dot and the
-// ConnectedSummary on /profile, so the SC-follow signal reads
+// SC-orange (#FF5500) presence dot at the bottom-right of their
+// avatar — same indicator vocabulary as the EventCard avatar dot and
+// the ConnectedSummary on /profile, so the SC-follow signal reads
 // consistently across the app. Anon viewers and signed-in users who
 // haven't connected SC pass undefined or empty Set; no dots render.
 
@@ -90,7 +90,7 @@ export function LineupList({
   followedSoundcloudUsernames,
 }: {
   lineup: LineupArtist[];
-  /** Phase 5.6.6 — lowercased SoundCloud usernames the signed-in user
+  /** Phase 5.6.7 — lowercased SoundCloud usernames the signed-in user
    *  follows. Same array-on-the-wire / Set-in-the-component pattern as
    *  EventCard receives it. Undefined or empty Set → no follow dots
    *  render (anon viewers + signed-in-but-not-SC-connected). */
@@ -104,7 +104,7 @@ export function LineupList({
   // bad URL doesn't blank out the whole lineup.
   const [brokenImages, setBrokenImages] = useState<Set<string>>(new Set());
 
-  // Phase 5.6.6 — pre-compute "any follows at all?" once per render so
+  // Phase 5.6.7 — pre-compute "any follows at all?" once per render so
   // the per-row check below short-circuits on anon paths without
   // touching the Set on every iteration. Memoize so a parent re-render
   // with a stable Set ref doesn't recompute.
@@ -189,20 +189,21 @@ export function LineupList({
                         aria-label={`You follow ${artist.name}`}
                         className={cn(
                           'pointer-events-none absolute bottom-0 right-0',
-                          // Phase 5.6.6 — same amber follow-dot
-                          // vocabulary as the EventCard avatar dot
-                          // and the ConnectedSummary indicator. Sized
-                          // 2.5×2.5 (vs EventCard's 2×2) so the dot
-                          // stays visually proportional on the larger
-                          // 14×14 headliner avatar without becoming a
-                          // smudge.
-                          'h-2.5 w-2.5 rounded-full bg-amber',
+                          // Phase 5.6.7 — SoundCloud's brand orange
+                          // (#FF5500) for the SC-follow signal. Same
+                          // dot vocabulary as the EventCard avatar
+                          // dot and the ConnectedSummary indicator.
+                          // Sized 2.5×2.5 (vs EventCard's 2×2) so the
+                          // dot stays visually proportional on the
+                          // larger 14×14 headliner avatar without
+                          // becoming a smudge.
+                          'h-2.5 w-2.5 rounded-full bg-sc-orange',
                           // Inset ring matches the card surface
                           // (curi-glass over bg-base) so the dot
                           // reads as separated from the avatar even
                           // on busy photo backgrounds.
                           'ring-2 ring-bg-base',
-                          'shadow-glow-amber-sm',
+                          'shadow-glow-sc-sm',
                         )}
                       />
                     )}
@@ -262,16 +263,17 @@ export function LineupList({
                         aria-label={`You follow ${artist.name}`}
                         className={cn(
                           'pointer-events-none absolute -bottom-0.5 -right-0.5',
-                          // Phase 5.6.6 — same dot vocabulary as the
-                          // headliner branch and the EventCard. 2×2
-                          // matches the EventCard's lineup-cluster
-                          // dot since the supporting-act avatar is
-                          // 10×10 (vs the 6×6 cluster avatars on the
-                          // card; the 10×10 supports the same dot
-                          // without needing scaling).
-                          'h-2 w-2 rounded-full bg-amber',
+                          // Phase 5.6.7 — SC brand orange (#FF5500),
+                          // same dot vocabulary as the headliner
+                          // branch and the EventCard. 2×2 matches the
+                          // EventCard's lineup-cluster dot since the
+                          // supporting-act avatar is 10×10 (vs the
+                          // 6×6 cluster avatars on the card; the
+                          // 10×10 supports the same dot without
+                          // needing scaling).
+                          'h-2 w-2 rounded-full bg-sc-orange',
                           'ring-2 ring-bg-base',
-                          'shadow-glow-amber-sm',
+                          'shadow-glow-sc-sm',
                         )}
                       />
                     )}
