@@ -9,6 +9,8 @@
   "scripts": {
     "ingest": "tsx src/cli.ts",
     "smoke:ticketmaster": "tsx scripts/smoke-ticketmaster-nyc.ts",
+    "smoke:sc-follows": "tsx scripts/test-soundcloud-follows.ts",
+    "refresh:sc-follows": "tsx src/cli-sc-refresh.ts",
     "enrich": "tsx src/llm-enrichment-run.ts",
     "dry-run": "tsx src/llm-enrichment-dry-run.ts",
     "backfill": "tsx src/backfill-run.ts",
@@ -21,7 +23,7 @@
     "reaggregate": "tsx src/events-reaggregate.ts",
     "start": "node dist/cli.js",
     "build": "tsc -p tsconfig.json",
-    "lint": "echo 'no-op \u2014 add eslint in phase 2'",
+    "lint": "echo 'no-op — add eslint in phase 2'",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "tsx --test src/**/*.test.ts"
   },
