@@ -27,6 +27,7 @@
 import Link from 'next/link';
 import { Chip, toneForGenre } from '@/components/chip';
 import { SaveButton } from '@/components/save-button';
+import { FollowDotStack } from '@/components/follow-dot-stack';
 import { timeLabel, formatPrice } from '@/lib/format';
 import type { FeedEvent } from '@/lib/events';
 import { initialsFor, avatarToneFor, AVATAR_BG } from '@/lib/avatars';
@@ -66,19 +67,24 @@ export function EventCard({
   event,
   saved = false,
   followedSoundcloudUsernames,
+  followedSpotifyArtistIds,
   signedIn = false,
 }: {
   event: FeedEvent;
   /** Whether the viewer has this event in their saves. */
   saved?: boolean;
   /** Phase 5.6 — lowercased SoundCloud usernames the signed-in user
-   *  follows. When provided, any lineup artist whose
-   *  `soundcloud_username` is in the set gets a small SC-orange
-   *  presence dot at the bottom-right corner of their avatar so the
-   *  user can see *why* the event ranked where it did (the boost is
-   *  applied upstream in `feedScore`). Undefined or empty set renders
-   *  the card without dots — same visual as anon viewers. */
+   *  follows. Threaded into the FollowDotStack on each lineup avatar
+   *  so the user can see *why* the event ranked where it did (the
+   *  Tier 2 / Tier 0 boost is applied upstream in `feedScore`).
+   *  Undefined or empty set → no SC dots render. */
   followedSoundcloudUsernames?: Set<string>;
+  /** Phase 5.7 — Spotify artist IDs the signed-in user follows.
+   *  Same pattern as the SC set; consumed by FollowDotStack to
+   *  render the spotify-green dot, plus stacking when both platforms
+   *  match the same artist. Undefined or empty set → no Spotify
+   *  dots render. */
+  followedSpotifyArtistIds?: Set<string>;
   /** Whether the viewer is signed in. Threaded in so the
    *  SaveButton can route unauth taps to /login instead of
    *  silently failing against RLS. */
@@ -89,13 +95,6 @@ export function EventCard({
   const lineup = event.lineup.slice(0, 3);
   const moreCount = Math.max(0, event.lineup.length - lineup.length);
   const hero = resolveHero(event);
-
-  // Phase 5.6 — pre-compute "is this avatar followed?" once per card so
-  // the avatar map below can render a presence dot without re-checking
-  // the Set every iteration. Returns false fast on anon/no-follows
-  // paths (set is undefined or empty).
-  const hasFollows =
-    !!followedSoundcloudUsernames && followedSoundcloudUsernames.size > 0;
 
   return (
     <Link
@@ -210,24 +209,14 @@ export function EventCard({
             <div className="flex shrink-0 -space-x-1.5">
               {lineup.map((a) => {
                 const tone = avatarToneFor(a.name);
-                // Phase 5.6 — surface "you follow this artist" via a
-                // small presence dot at the avatar's bottom-right corner
-                // instead of a caption row. Decoded instantly
-                // (Discord/Slack-style indicator); doesn't fight the
-                // existing avatar+name truncation; passes a11y rule
-                // `color-not-only` because it's a discrete shape with
-                // an aria-label on top of the brand color.
-                const isFollowed =
-                  hasFollows &&
-                  !!a.soundcloud_username &&
-                  followedSoundcloudUsernames!.has(a.soundcloud_username);
                 return (
-                  // The wrapping `relative` lets the dot absolute-
-                  // position outside the avatar's `overflow-hidden`
-                  // rounded clip without breaking the cluster's
-                  // negative-margin ring stack — the wrapper still
-                  // takes up the avatar's 24×24 footprint, so the
-                  // -space-x-1.5 spacing stays correct.
+                  // The wrapping `relative` lets the FollowDotStack
+                  // absolute-position outside the avatar's
+                  // `overflow-hidden` rounded clip without breaking
+                  // the cluster's negative-margin ring stack — the
+                  // wrapper still takes up the avatar's 24×24
+                  // footprint so the -space-x-1.5 spacing stays
+                  // correct.
                   <div key={a.name} className="relative">
                     <div
                       className={cn(
@@ -252,38 +241,19 @@ export function EventCard({
                         initialsFor(a.name)
                       )}
                     </div>
-                    {isFollowed && (
-                      <span
-                        role="img"
-                        aria-label={`You follow ${a.name}`}
-                        className={cn(
-                          'pointer-events-none absolute -bottom-0.5 -right-0.5',
-                          // Phase 5.6.7 — SoundCloud's brand orange
-                          // (#FF5500) gives the SC-follow signal its
-                          // own intuitive color vocabulary — users
-                          // recognize the orange as "SC" without any
-                          // additional cognitive load. Distinct from
-                          // cyan (primary actions / transient success)
-                          // and from amber (warning/error palette).
-                          // Same dot styling appears on the
-                          // ConnectedSummary indicator and the
-                          // LineupList avatars on the detail page.
-                          'h-2 w-2 rounded-full bg-sc-orange',
-                          // Inset ring matches the card background so
-                          // the dot reads as separated from the
-                          // avatar even on busy photo backgrounds.
-                          'ring-2 ring-bg-base',
-                          // SC-orange-tinted halo, smaller variant.
-                          // Same 16px / 0.30α the SaveButton +
-                          // BottomNav use for cyan active states,
-                          // recolored to match the dot. The full
-                          // `shadow-glow-sc` (24px / 0.40α) would halo
-                          // larger than the avatar itself; -sm keeps
-                          // the indicator presence-dot subtle.
-                          'shadow-glow-sc-sm',
-                        )}
-                      />
-                    )}
+                    {/* Phase 5.7 — single shared component for the
+                        SC-orange / Spotify-green / both-stacked
+                        follow indicator. Same component used by
+                        LineupList on the detail page, scaled `md`
+                        for the headliner avatar there. */}
+                    <FollowDotStack
+                      artistName={a.name}
+                      soundcloudUsername={a.soundcloud_username}
+                      spotifyId={a.spotify_id}
+                      followedSoundcloudUsernames={followedSoundcloudUsernames}
+                      followedSpotifyArtistIds={followedSpotifyArtistIds}
+                      size="sm"
+                    />
                   </div>
                 );
               })}

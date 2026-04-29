@@ -18,13 +18,14 @@
 // consistently across the app. Anon viewers and signed-in users who
 // haven't connected SC pass undefined or empty Set; no dots render.
 
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { Play, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { FollowDotStack } from '@/components/follow-dot-stack';
 import type { LineupArtist } from '@/lib/events';
 import { initialsFor, avatarToneFor, AVATAR_BG } from '@/lib/avatars';
 
-// ── embed helpers ─────────────────────────────────────────────────
+// ── embed helpers ────────────────────────────────────────────────────
 
 function spotifyArtistId(spotifyUrl: string | null): string | null {
   if (!spotifyUrl) return null;
@@ -41,7 +42,7 @@ function embedUrl(artist: LineupArtist): string | null {
   return null;
 }
 
-// ── sub-components ────────────────────────────────────────────────
+// ── sub-components ───────────────────────────────────────────────────
 
 function PlayButton({
   open,
@@ -83,18 +84,24 @@ function EmbedPanel({ url }: { url: string }) {
   );
 }
 
-// ── main component ───────────────────────────────────────────────
+// ── main component ───────────────────────────────────────────────────
 
 export function LineupList({
   lineup,
   followedSoundcloudUsernames,
+  followedSpotifyArtistIds,
 }: {
   lineup: LineupArtist[];
-  /** Phase 5.6.7 — lowercased SoundCloud usernames the signed-in user
+  /** Phase 5.6.6 — lowercased SoundCloud usernames the signed-in user
    *  follows. Same array-on-the-wire / Set-in-the-component pattern as
-   *  EventCard receives it. Undefined or empty Set → no follow dots
+   *  EventCard receives it. Undefined or empty Set → no SC dots
    *  render (anon viewers + signed-in-but-not-SC-connected). */
   followedSoundcloudUsernames?: Set<string>;
+  /** Phase 5.7 — Spotify artist IDs the signed-in user follows. Same
+   *  pattern as the SC set; consumed by FollowDotStack to render the
+   *  spotify-green dot, plus stacking when both platforms match the
+   *  same artist. Undefined or empty Set → no Spotify dots render. */
+  followedSpotifyArtistIds?: Set<string>;
 }) {
   const [activeArtist, setActiveArtist] = useState<string | null>(null);
   // Track artist names whose <img> failed to load. SC's i1.sndcdn.com
@@ -103,16 +110,6 @@ export function LineupList({
   // and re-render with the initials fallback. Per-artist set so one
   // bad URL doesn't blank out the whole lineup.
   const [brokenImages, setBrokenImages] = useState<Set<string>>(new Set());
-
-  // Phase 5.6.7 — pre-compute "any follows at all?" once per render so
-  // the per-row check below short-circuits on anon paths without
-  // touching the Set on every iteration. Memoize so a parent re-render
-  // with a stable Set ref doesn't recompute.
-  const hasFollows = useMemo(
-    () =>
-      !!followedSoundcloudUsernames && followedSoundcloudUsernames.size > 0,
-    [followedSoundcloudUsernames],
-  );
 
   if (lineup.length === 0) return null;
 
@@ -127,17 +124,6 @@ export function LineupList({
       next.add(name);
       return next;
     });
-  }
-
-  // Per-row predicate. Hoisted so both the headliner branch and the
-  // supporting-grid branch share the same check without re-typing the
-  // null-guards. Inline-able if the prop ever becomes required.
-  function isFollowed(artist: LineupArtist): boolean {
-    return (
-      hasFollows &&
-      !!artist.soundcloud_username &&
-      followedSoundcloudUsernames!.has(artist.soundcloud_username)
-    );
   }
 
   const headliners = lineup.filter((a) => a.is_headliner);
@@ -183,30 +169,19 @@ export function LineupList({
                         initialsFor(artist.name)
                       )}
                     </div>
-                    {isFollowed(artist) && (
-                      <span
-                        role="img"
-                        aria-label={`You follow ${artist.name}`}
-                        className={cn(
-                          'pointer-events-none absolute bottom-0 right-0',
-                          // Phase 5.6.7 — SoundCloud's brand orange
-                          // (#FF5500) for the SC-follow signal. Same
-                          // dot vocabulary as the EventCard avatar
-                          // dot and the ConnectedSummary indicator.
-                          // Sized 2.5×2.5 (vs EventCard's 2×2) so the
-                          // dot stays visually proportional on the
-                          // larger 14×14 headliner avatar without
-                          // becoming a smudge.
-                          'h-2.5 w-2.5 rounded-full bg-sc-orange',
-                          // Inset ring matches the card surface
-                          // (curi-glass over bg-base) so the dot
-                          // reads as separated from the avatar even
-                          // on busy photo backgrounds.
-                          'ring-2 ring-bg-base',
-                          'shadow-glow-sc-sm',
-                        )}
-                      />
-                    )}
+                    {/* Phase 5.7 — single shared FollowDotStack
+                        renders SC-orange / Spotify-green / both-
+                        stacked. `size="md"` bumps the dot to 2.5×2.5
+                        so it stays proportional on the 14×14
+                        headliner avatar. */}
+                    <FollowDotStack
+                      artistName={artist.name}
+                      soundcloudUsername={artist.soundcloud_username}
+                      spotifyId={artist.spotify_id}
+                      followedSoundcloudUsernames={followedSoundcloudUsernames}
+                      followedSpotifyArtistIds={followedSpotifyArtistIds}
+                      size="md"
+                    />
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="truncate font-display text-base font-semibold text-fg-primary">
@@ -257,26 +232,17 @@ export function LineupList({
                         initialsFor(artist.name)
                       )}
                     </div>
-                    {isFollowed(artist) && (
-                      <span
-                        role="img"
-                        aria-label={`You follow ${artist.name}`}
-                        className={cn(
-                          'pointer-events-none absolute -bottom-0.5 -right-0.5',
-                          // Phase 5.6.7 — SC brand orange (#FF5500),
-                          // same dot vocabulary as the headliner
-                          // branch and the EventCard. 2×2 matches the
-                          // EventCard's lineup-cluster dot since the
-                          // supporting-act avatar is 10×10 (vs the
-                          // 6×6 cluster avatars on the card; the
-                          // 10×10 supports the same dot without
-                          // needing scaling).
-                          'h-2 w-2 rounded-full bg-sc-orange',
-                          'ring-2 ring-bg-base',
-                          'shadow-glow-sc-sm',
-                        )}
-                      />
-                    )}
+                    {/* Phase 5.7 — same FollowDotStack as the
+                        headliner branch + EventCard, default `sm`
+                        size for the 10×10 supporting-act avatar. */}
+                    <FollowDotStack
+                      artistName={artist.name}
+                      soundcloudUsername={artist.soundcloud_username}
+                      spotifyId={artist.spotify_id}
+                      followedSoundcloudUsernames={followedSoundcloudUsernames}
+                      followedSpotifyArtistIds={followedSpotifyArtistIds}
+                      size="sm"
+                    />
                   </div>
                   <div className="min-w-0 flex-1 truncate text-sm text-fg-primary">
                     {artist.name}
