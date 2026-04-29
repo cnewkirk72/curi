@@ -27,6 +27,7 @@ import { LocationCard } from '@/components/location-card';
 import { SaveButton } from '@/components/save-button';
 import { getEventById } from '@/lib/events';
 import { isEventSaved } from '@/lib/saves';
+import { getUserFollowedSoundcloudUsernames } from '@/lib/follows';
 import { createClient } from '@/lib/supabase/server';
 import { timeLabel, formatPrice, groupLabel, nycDayKey } from '@/lib/format';
 import { resolveHero } from '@/lib/hero-image';
@@ -64,18 +65,25 @@ export default async function EventDetailPage({
   const event = await getEventById(params.id);
   if (!event) notFound();
 
-  // Fetch the viewer's session and saved-state in parallel with the
-  // event body. `isEventSaved` returns false for anon viewers (RLS),
-  // so we only need `signedIn` to decide whether the Save button
-  // should route taps to /login.
+  // Fetch the viewer's session, saved-state, and SoundCloud follow
+  // graph in parallel with the event body. `isEventSaved` returns
+  // false for anon viewers (RLS); `getUserFollowedSoundcloudUsernames`
+  // returns [] (Phase 5.6.6 — the LineupList renders no follow dots
+  // when the Set is empty, which is the correct anon-safe behavior).
+  // `signedIn` decides whether the Save button routes taps to /login.
   const supabase = createClient();
-  const [savedForViewer, {
+  const [savedForViewer, followedScUsernames, {
     data: { user },
   }] = await Promise.all([
     isEventSaved(params.id),
+    getUserFollowedSoundcloudUsernames(),
     supabase.auth.getUser(),
   ]);
   const signedIn = !!user;
+  // Build the Set once at the page level; LineupList expects a Set so
+  // its per-row `isFollowed` check can run in O(1) without rebuilding
+  // per-render. Empty Set is the no-op path.
+  const followedScUsernameSet = new Set(followedScUsernames);
 
   const price = formatPrice(event.price_min, event.price_max);
   const day = groupLabel(nycDayKey(event.starts_at));
@@ -99,7 +107,7 @@ export default async function EventDetailPage({
           Back to feed
         </Link>
 
-        {/* ── Hero ──────────────────────────────────────────────── */}
+        {/* ── Hero ───────────────────────────────────────────────── */}
         <section className="mt-6 animate-enter-up">
           <div className="relative aspect-[5/3] w-full overflow-hidden rounded-2xl shadow-card">
             {hero.kind !== 'none' ? (
@@ -160,7 +168,7 @@ export default async function EventDetailPage({
           </div>
         </section>
 
-        {/* ── Meta + title ──────────────────────────────────────── */}
+        {/* ── Meta + title ───────────────────────────────────────── */}
         <section className="mt-6 space-y-3">
           <div className="text-2xs uppercase tracking-widest text-fg-muted tabular">
             {day} · {timeLabel(event.starts_at)}
@@ -206,17 +214,20 @@ export default async function EventDetailPage({
           </div>
         </section>
 
-        {/* ── Lineup ────────────────────────────────────────────── */}
+        {/* ── Lineup ─────────────────────────────────────────────── */}
         {event.lineup.length > 0 && (
           <section className="mt-10">
             <h2 className="mb-4 font-display text-2xs font-medium uppercase tracking-widest text-fg-muted">
               Lineup
             </h2>
-            <LineupList lineup={event.lineup} />
+            <LineupList
+              lineup={event.lineup}
+              followedSoundcloudUsernames={followedScUsernameSet}
+            />
           </section>
         )}
 
-        {/* ── Description ───────────────────────────────────────── */}
+        {/* ── Description ────────────────────────────────────────── */}
         {event.description && (
           <section className="mt-10">
             <h2 className="mb-3 font-display text-2xs font-medium uppercase tracking-widest text-fg-muted">
@@ -243,7 +254,7 @@ export default async function EventDetailPage({
           </section>
         )}
 
-        {/* ── Ticket CTA ────────────────────────────────────────── */}
+        {/* ── Ticket CTA ───────────────────────────────────────── */}
         {event.ticket_url && (
           <a
             href={event.ticket_url}

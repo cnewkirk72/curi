@@ -9,14 +9,22 @@
 // button; tapping it expands an inline iframe preview (Spotify artist
 // player preferred, SoundCloud fallback). Only one preview is open at
 // a time — tapping a second artist collapses the first.
+//
+// Phase 5.6.6 — accepts an optional `followedSoundcloudUsernames` Set.
+// Any artist whose `soundcloud_username` is in the set gets a small
+// amber presence dot at the bottom-right of their avatar — same
+// indicator vocabulary as the EventCard avatar dot and the
+// ConnectedSummary on /profile, so the SC-follow signal reads
+// consistently across the app. Anon viewers and signed-in users who
+// haven't connected SC pass undefined or empty Set; no dots render.
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Play, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { LineupArtist } from '@/lib/events';
 import { initialsFor, avatarToneFor, AVATAR_BG } from '@/lib/avatars';
 
-// ── embed helpers ────────────────────────────────────────────────────
+// ── embed helpers ─────────────────────────────────────────────────
 
 function spotifyArtistId(spotifyUrl: string | null): string | null {
   if (!spotifyUrl) return null;
@@ -33,7 +41,7 @@ function embedUrl(artist: LineupArtist): string | null {
   return null;
 }
 
-// ── sub-components ───────────────────────────────────────────────────
+// ── sub-components ────────────────────────────────────────────────
 
 function PlayButton({
   open,
@@ -75,9 +83,19 @@ function EmbedPanel({ url }: { url: string }) {
   );
 }
 
-// ── main component ───────────────────────────────────────────────────
+// ── main component ───────────────────────────────────────────────
 
-export function LineupList({ lineup }: { lineup: LineupArtist[] }) {
+export function LineupList({
+  lineup,
+  followedSoundcloudUsernames,
+}: {
+  lineup: LineupArtist[];
+  /** Phase 5.6.6 — lowercased SoundCloud usernames the signed-in user
+   *  follows. Same array-on-the-wire / Set-in-the-component pattern as
+   *  EventCard receives it. Undefined or empty Set → no follow dots
+   *  render (anon viewers + signed-in-but-not-SC-connected). */
+  followedSoundcloudUsernames?: Set<string>;
+}) {
   const [activeArtist, setActiveArtist] = useState<string | null>(null);
   // Track artist names whose <img> failed to load. SC's i1.sndcdn.com
   // and BC's f4.bcbits.com URLs are hot-linked (no Supabase Storage
@@ -85,6 +103,16 @@ export function LineupList({ lineup }: { lineup: LineupArtist[] }) {
   // and re-render with the initials fallback. Per-artist set so one
   // bad URL doesn't blank out the whole lineup.
   const [brokenImages, setBrokenImages] = useState<Set<string>>(new Set());
+
+  // Phase 5.6.6 — pre-compute "any follows at all?" once per render so
+  // the per-row check below short-circuits on anon paths without
+  // touching the Set on every iteration. Memoize so a parent re-render
+  // with a stable Set ref doesn't recompute.
+  const hasFollows = useMemo(
+    () =>
+      !!followedSoundcloudUsernames && followedSoundcloudUsernames.size > 0,
+    [followedSoundcloudUsernames],
+  );
 
   if (lineup.length === 0) return null;
 
@@ -99,6 +127,17 @@ export function LineupList({ lineup }: { lineup: LineupArtist[] }) {
       next.add(name);
       return next;
     });
+  }
+
+  // Per-row predicate. Hoisted so both the headliner branch and the
+  // supporting-grid branch share the same check without re-typing the
+  // null-guards. Inline-able if the prop ever becomes required.
+  function isFollowed(artist: LineupArtist): boolean {
+    return (
+      hasFollows &&
+      !!artist.soundcloud_username &&
+      followedSoundcloudUsernames!.has(artist.soundcloud_username)
+    );
   }
 
   const headliners = lineup.filter((a) => a.is_headliner);
@@ -117,24 +156,55 @@ export function LineupList({ lineup }: { lineup: LineupArtist[] }) {
                 className="curi-glass rounded-2xl p-4 shadow-card"
               >
                 <div className="flex items-center gap-4">
-                  <div
-                    className={cn(
-                      'flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-full border',
-                      'bg-accent-chip text-accent font-display text-base font-semibold',
-                      'ring-2 ring-accent/40 shadow-glow-sm',
-                    )}
-                  >
-                    {artist.image_url && !brokenImages.has(artist.name) ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={artist.image_url}
-                        alt=""
-                        loading="lazy"
-                        onError={() => markBroken(artist.name)}
-                        className="h-full w-full object-cover"
+                  {/* Avatar wrapper — `relative` so the follow-dot can
+                      absolute-position outside the avatar's
+                      `overflow-hidden` clip without disturbing the
+                      flex-row layout. The wrapper still occupies the
+                      14×14 footprint so the gap-4 between avatar and
+                      name stays consistent. */}
+                  <div className="relative shrink-0">
+                    <div
+                      className={cn(
+                        'flex h-14 w-14 items-center justify-center overflow-hidden rounded-full border',
+                        'bg-accent-chip text-accent font-display text-base font-semibold',
+                        'ring-2 ring-accent/40 shadow-glow-sm',
+                      )}
+                    >
+                      {artist.image_url && !brokenImages.has(artist.name) ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={artist.image_url}
+                          alt=""
+                          loading="lazy"
+                          onError={() => markBroken(artist.name)}
+                          className="h-full w-full object-cover"
+                        />
+                      ) : (
+                        initialsFor(artist.name)
+                      )}
+                    </div>
+                    {isFollowed(artist) && (
+                      <span
+                        role="img"
+                        aria-label={`You follow ${artist.name}`}
+                        className={cn(
+                          'pointer-events-none absolute bottom-0 right-0',
+                          // Phase 5.6.6 — same amber follow-dot
+                          // vocabulary as the EventCard avatar dot
+                          // and the ConnectedSummary indicator. Sized
+                          // 2.5×2.5 (vs EventCard's 2×2) so the dot
+                          // stays visually proportional on the larger
+                          // 14×14 headliner avatar without becoming a
+                          // smudge.
+                          'h-2.5 w-2.5 rounded-full bg-amber',
+                          // Inset ring matches the card surface
+                          // (curi-glass over bg-base) so the dot
+                          // reads as separated from the avatar even
+                          // on busy photo backgrounds.
+                          'ring-2 ring-bg-base',
+                          'shadow-glow-amber-sm',
+                        )}
                       />
-                    ) : (
-                      initialsFor(artist.name)
                     )}
                   </div>
                   <div className="min-w-0 flex-1">
@@ -163,24 +233,47 @@ export function LineupList({ lineup }: { lineup: LineupArtist[] }) {
             return (
               <div key={artist.name} className={cn(url && open && 'col-span-2')}>
                 <div className="flex items-center gap-3">
-                  <div
-                    className={cn(
-                      'flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full border',
-                      'font-display text-xs font-semibold',
-                      AVATAR_BG[tone],
-                    )}
-                  >
-                    {artist.image_url && !brokenImages.has(artist.name) ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={artist.image_url}
-                        alt=""
-                        loading="lazy"
-                        onError={() => markBroken(artist.name)}
-                        className="h-full w-full object-cover"
+                  {/* Avatar wrapper for the follow-dot positioning —
+                      same pattern as the headliner branch above. */}
+                  <div className="relative shrink-0">
+                    <div
+                      className={cn(
+                        'flex h-10 w-10 items-center justify-center overflow-hidden rounded-full border',
+                        'font-display text-xs font-semibold',
+                        AVATAR_BG[tone],
+                      )}
+                    >
+                      {artist.image_url && !brokenImages.has(artist.name) ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={artist.image_url}
+                          alt=""
+                          loading="lazy"
+                          onError={() => markBroken(artist.name)}
+                          className="h-full w-full object-cover"
+                        />
+                      ) : (
+                        initialsFor(artist.name)
+                      )}
+                    </div>
+                    {isFollowed(artist) && (
+                      <span
+                        role="img"
+                        aria-label={`You follow ${artist.name}`}
+                        className={cn(
+                          'pointer-events-none absolute -bottom-0.5 -right-0.5',
+                          // Phase 5.6.6 — same dot vocabulary as the
+                          // headliner branch and the EventCard. 2×2
+                          // matches the EventCard's lineup-cluster
+                          // dot since the supporting-act avatar is
+                          // 10×10 (vs the 6×6 cluster avatars on the
+                          // card; the 10×10 supports the same dot
+                          // without needing scaling).
+                          'h-2 w-2 rounded-full bg-amber',
+                          'ring-2 ring-bg-base',
+                          'shadow-glow-amber-sm',
+                        )}
                       />
-                    ) : (
-                      initialsFor(artist.name)
                     )}
                   </div>
                   <div className="min-w-0 flex-1 truncate text-sm text-fg-primary">
