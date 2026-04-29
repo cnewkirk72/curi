@@ -42,6 +42,7 @@ type SavedRow = {
             spotify_popularity: number | null;
             soundcloud_url: string | null;
             soundcloud_followers: number | null;
+            soundcloud_username: string | null;
             bandcamp_url: string | null;
             bandcamp_followers: number | null;
           } | null;
@@ -94,6 +95,7 @@ export async function getSavedEvents(): Promise<FeedEvent[]> {
             spotify_popularity,
             soundcloud_url,
             soundcloud_followers,
+            soundcloud_username,
             bandcamp_url,
             bandcamp_followers
           )
@@ -147,6 +149,7 @@ export async function getSavedEvents(): Promise<FeedEvent[]> {
           spotify_popularity: ea.artist?.spotify_popularity ?? null,
           soundcloud_url: ea.artist?.soundcloud_url ?? null,
           soundcloud_followers: ea.artist?.soundcloud_followers ?? null,
+          soundcloud_username: ea.artist?.soundcloud_username ?? null,
           bandcamp_url: ea.artist?.bandcamp_url ?? null,
           bandcamp_followers: ea.artist?.bandcamp_followers ?? null,
         }))
