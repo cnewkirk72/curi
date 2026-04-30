@@ -16,7 +16,16 @@ import type { CapacitorConfig } from '@capacitor/cli';
 // SpotifyConnect.m provides the Objective-C-runtime registration; the
 // packageClassList entry here is the explicit SPM-mode discovery.
 
-const config: CapacitorConfig = {
+// `packageClassList` is a runtime-valid Capacitor field used for
+// explicit SPM-mode plugin discovery, but the type exported by
+// @capacitor/cli doesn't include it (it's gated behind the SPM
+// transition that's still in progress upstream). Locally widen the
+// type so tsc doesn't reject the field on Next.js's build typecheck.
+type CapacitorConfigWithSPM = CapacitorConfig & {
+  packageClassList?: string[];
+};
+
+const config: CapacitorConfigWithSPM = {
   appId: 'com.curinyc.app',
   appName: 'Curi',
   webDir: 'public/capacitor-shell',
