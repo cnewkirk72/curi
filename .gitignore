@@ -37,3 +37,4 @@ supabase/.branches/
 playwright-report/
 test-results/
 .cache/
+apps/web/ios.broken-*/

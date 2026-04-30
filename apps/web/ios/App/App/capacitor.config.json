@@ -1,0 +1,27 @@
+{
+	"appId": "com.curinyc.app",
+	"appName": "Curi",
+	"webDir": "public/capacitor-shell",
+	"server": {
+		"url": "https://curi.nyc",
+		"cleartext": false,
+		"allowNavigation": [
+			"curi.nyc",
+			"*.curi.nyc",
+			"accounts.google.com",
+			"*.supabase.co"
+		]
+	},
+	"ios": {
+		"contentInset": "automatic",
+		"backgroundColor": "#05070D"
+	},
+	"packageClassList": [
+		"AppPlugin",
+		"CAPBrowserPlugin",
+		"HapticsPlugin",
+		"SplashScreenPlugin",
+		"StatusBarPlugin",
+		"SocialLoginPlugin"
+	]
+}
