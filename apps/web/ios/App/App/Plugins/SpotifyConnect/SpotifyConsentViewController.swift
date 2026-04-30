@@ -8,6 +8,10 @@
 // Mode toggles minor copy variations (Connect vs Refresh) but the
 // data-collection disclosure is identical in both flows — refreshing
 // is the same data scope as connecting.
+//
+// iOS 15 compat: weight is applied via the Font value (.font(.title2
+// .weight(.semibold))), not the Text modifier (.fontWeight(.semibold)),
+// because the latter is iOS 16+.
 
 import SwiftUI
 import UIKit
@@ -72,8 +76,7 @@ private struct ConsentScreen: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 Text(heading)
-                    .font(.title2)
-                    .fontWeight(.semibold)
+                    .font(.title2.weight(.semibold))
                     .padding(.top, 24)
 
                 Text("Curi will open Spotify in a window inside the app. You sign in to your Spotify account using Spotify's own login — Curi never sees your password.")
@@ -82,15 +85,13 @@ private struct ConsentScreen: View {
 
                 VStack(alignment: .leading, spacing: 12) {
                     Text("Once signed in, Curi reads:")
-                        .font(.subheadline)
-                        .fontWeight(.semibold)
+                        .font(.subheadline.weight(.semibold))
                     BulletRow(text: "The list of artists you follow on Spotify", color: .green)
                 }
 
                 VStack(alignment: .leading, spacing: 12) {
                     Text("Curi does NOT read:")
-                        .font(.subheadline)
-                        .fontWeight(.semibold)
+                        .font(.subheadline.weight(.semibold))
                     BulletRow(text: "Your password or login credentials", color: .red)
                     BulletRow(text: "Your playlists or listening history", color: .red)
                     BulletRow(text: "Payment information", color: .red)
@@ -114,9 +115,9 @@ private struct ConsentScreen: View {
 
                     Button(action: onContinue) {
                         Text("Continue")
+                            .font(.body.weight(.semibold))
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 12)
-                            .fontWeight(.semibold)
                     }
                     .buttonStyle(.borderedProminent)
                     .tint(Color(red: 0.118, green: 0.843, blue: 0.376)) // #1ED760 Spotify green
