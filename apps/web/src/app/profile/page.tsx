@@ -136,6 +136,7 @@ export default async function ProfilePage() {
         <ConnectorsSection
           spotifyUserId={spotifyConnection.userId}
           spotifyLastSyncedAt={spotifyConnection.lastSyncedAt}
+          spotifyHasFollows={spotifyConnection.hasFollows}
           soundcloudUsername={scConnection.username}
           soundcloudLastSyncedAt={scConnection.lastSyncedAt}
         />
