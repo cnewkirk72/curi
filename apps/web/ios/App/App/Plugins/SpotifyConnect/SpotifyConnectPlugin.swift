@@ -14,6 +14,10 @@
 //   - Capture timeout (60s) → call.reject("TIMEOUT")
 //   - Other failures (network, parse) → call.reject("SCRAPE_FAILED")
 // JS side maps these to user-friendly toast copy.
+//
+// Mode is shared with SpotifyConsentViewController — we use that
+// type directly rather than defining a separate plugin-local enum,
+// since it's only ever forwarded to the consent screen anyway.
 
 import Capacitor
 import UIKit
@@ -37,9 +41,7 @@ public class SpotifyConnectPlugin: CAPPlugin {
 
     // MARK: - Internal
 
-    private enum Mode { case connect, refresh }
-
-    private func runFlow(mode: Mode, call: CAPPluginCall) {
+    private func runFlow(mode: SpotifyConsentViewController.Mode, call: CAPPluginCall) {
         guard let presenter = self.bridge?.viewController else {
             call.reject("NO_VIEW_CONTROLLER")
             return
