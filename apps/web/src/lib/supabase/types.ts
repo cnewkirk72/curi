@@ -11,6 +11,8 @@ export type Json =
   | Json[]
 
 export type Database = {
+  // Allows to automatically instantiate createClient with right options
+  // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
     PostgrestVersion: "14.5"
   }
@@ -408,7 +410,10 @@ export type Database = {
           preferred_setting: string[]
           preferred_subgenres: string[]
           preferred_vibes: string[]
+          soundcloud_access_token: string | null
           soundcloud_last_synced_at: string | null
+          soundcloud_refresh_token: string | null
+          soundcloud_token_expires_at: string | null
           soundcloud_username: string | null
           spotify_last_synced_at: string | null
           spotify_user_id: string | null
@@ -427,7 +432,10 @@ export type Database = {
           preferred_setting?: string[]
           preferred_subgenres?: string[]
           preferred_vibes?: string[]
+          soundcloud_access_token?: string | null
           soundcloud_last_synced_at?: string | null
+          soundcloud_refresh_token?: string | null
+          soundcloud_token_expires_at?: string | null
           soundcloud_username?: string | null
           spotify_last_synced_at?: string | null
           spotify_user_id?: string | null
@@ -446,7 +454,10 @@ export type Database = {
           preferred_setting?: string[]
           preferred_subgenres?: string[]
           preferred_vibes?: string[]
+          soundcloud_access_token?: string | null
           soundcloud_last_synced_at?: string | null
+          soundcloud_refresh_token?: string | null
+          soundcloud_token_expires_at?: string | null
           soundcloud_username?: string | null
           spotify_last_synced_at?: string | null
           spotify_user_id?: string | null

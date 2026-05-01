@@ -139,6 +139,8 @@ export default async function ProfilePage() {
           spotifyHasFollows={spotifyConnection.hasFollows}
           soundcloudUsername={scConnection.username}
           soundcloudLastSyncedAt={scConnection.lastSyncedAt}
+          soundcloudOauthConnected={scConnection.oauthConnected}
+          soundcloudFollowsCount={scConnection.followsCount}
         />
 
         <PreferencesForm initial={prefs} />

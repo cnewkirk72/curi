@@ -56,6 +56,12 @@ type Props = {
   /** ISO timestamp of last successful sync, or null. Drives the
    *  "Last synced X ago" label. */
   initialLastSyncedAt: string | null;
+  /** Phase 5.8 — when true, suppresses the section eyebrow ("SoundCloud
+   *  follows" + "Boost events with artists you follow") so this card
+   *  can render as a sub-card under SoundcloudOAuthCard inside
+   *  ConnectorsSection without producing a duplicate heading. Defaults
+   *  to false; legacy callers (none currently) get the original layout. */
+  hideHeader?: boolean;
 };
 
 type Status =
@@ -77,6 +83,7 @@ const USERNAME_RE = /^[a-zA-Z0-9_-]{1,80}$/;
 export function SoundcloudConnectCard({
   initialUsername,
   initialLastSyncedAt,
+  hideHeader = false,
 }: Props) {
   const [status, setStatus] = useState<Status>({ kind: 'idle' });
   const [isPending, startTransition] = useTransition();
@@ -166,15 +173,17 @@ export function SoundcloudConnectCard({
   // ─── Render ───────────────────────────────────────────────────────────────────
 
   return (
-    <section className="mt-6">
-      <div className="mb-3 flex items-baseline justify-between">
-        <h3 className="font-display text-2xs font-medium uppercase tracking-widest text-fg-muted">
-          SoundCloud follows
-        </h3>
-        <span className="text-2xs text-fg-dim">
-          Boost events with artists you follow
-        </span>
-      </div>
+    <section className={hideHeader ? undefined : 'mt-6'}>
+      {!hideHeader && (
+        <div className="mb-3 flex items-baseline justify-between">
+          <h3 className="font-display text-2xs font-medium uppercase tracking-widest text-fg-muted">
+            SoundCloud follows
+          </h3>
+          <span className="text-2xs text-fg-dim">
+            Boost events with artists you follow
+          </span>
+        </div>
+      )}
 
       {/* Card + confirmation overlay share a relative wrapper so the
           overlay can absolute-inset-0 onto the card without breaking
